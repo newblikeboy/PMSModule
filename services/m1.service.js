@@ -2,8 +2,8 @@
 const fs = require("fs");
 const path = require("path");
 const { fyersDataSocket } = require("fyers-api-v3");
-const { getSocketToken } = require("../fyersAuth");
-const fy = require("../fyersSdk");
+const { getSocketToken } = require("./fyersAuth");
+const fy = require("./fyersSdk");
 const { todayCutoffTs, isBeforeCutoff, IST } = require("../utils/time");
 const { DateTime } = require("luxon");
 const M1Mover = require("../models/M1Mover");

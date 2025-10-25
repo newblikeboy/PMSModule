@@ -2,7 +2,7 @@
 "use strict";
 
 const { DateTime } = require("luxon");
-const fy = require("../fyersSdk"); // we already have this for history()
+const fy = require("./fyersSdk"); // we already have this for history()
 const { calcRSI14FromCandles } = require("../utils/indicators");
 const { IST } = require("../utils/time");
 const M2Signal = require("../models/M2Signal");

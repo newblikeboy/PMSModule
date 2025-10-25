@@ -3,7 +3,7 @@
 
 const PaperTrade = require("../models/PaperTrade");
 const m2Service = require("./m2.service"); // for RSI + LTP data
-const fy = require("../fyersSdk"); // for quotes() -> live LTP
+const fy = require("./fyersSdk"); // for quotes() -> live LTP
 
 // helper: fetch live LTP for a symbol using fy.getQuotes()
 async function fetchLTP(symbol) {
