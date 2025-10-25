@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuantPulse Admin Console</title>
+
+  <link rel="stylesheet" href="./styles/landing.css" />
+  <link rel="stylesheet" href="./styles/admin.css" />
+</head>
+<body class="admin-body">
+
+  <!-- HEADER -->
+  <header class="admin-header">
+    <div class="admin-header-inner container">
+      <div class="admin-left">
+        <div class="admin-brand">
+          <div class="admin-logo">🚀</div>
+          <div>
+            <div class="admin-name">QuantPulse Console</div>
+            <div class="admin-tag">Founder / Internal Only</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="admin-right">
+        <button class="admin-logout-btn" id="adminLogoutBtn">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- NAV TABS -->
+  <nav class="admin-tabs">
+    <div class="container admin-tabs-inner">
+      <button class="admin-tab-btn active" data-tab="overviewTab">Overview</button>
+      <button class="admin-tab-btn" data-tab="tradesTab">Trades</button>
+      <button class="admin-tab-btn" data-tab="usersTab">Users</button>
+      <button class="admin-tab-btn" data-tab="systemTab">System Control</button>
+    </div>
+  </nav>
+
+  <main class="admin-main container">
+
+    <!-- ============ OVERVIEW TAB ============ -->
+    <section class="admin-tab-section" id="overviewTab">
+      <section class="admin-card-grid">
+        <div class="admin-card">
+          <div class="admin-card-label">Closed Trades (Today)</div>
+          <div class="admin-card-value" id="ovClosedTrades">--</div>
+          <div class="admin-card-foot" id="ovWinLoss">Wins/Losses: --</div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-label">Net PnL Today</div>
+          <div class="admin-card-value" id="ovPnL">--</div>
+          <div class="admin-card-foot" id="ovBestTrade">Best Trade: --</div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-label">Open Paper Trades</div>
+          <div class="admin-card-value" id="ovOpenTrades">--</div>
+          <div class="admin-card-foot">
+            Current simulated exposure in market
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-label">Automation Enabled Users</div>
+          <div class="admin-card-value" id="ovAutoUsers">--</div>
+          <div class="admin-card-foot">
+            Users with autoTradingEnabled = true
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-users-wrap" style="margin-top:24px;">
+        <div class="admin-users-head">
+          <div>
+            <div class="admin-section-title">Live Signals Snapshot</div>
+            <div class="admin-section-sub">
+              What symbols are currently in our “entry zone”
+            </div>
+          </div>
+          <div class="admin-refresh-block">
+            <button class="admin-refresh-btn" data-reload="signals">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Entry Price</th>
+                <th>Target</th>
+                <th>Stop</th>
+                <th>Why Listed</th>
+              </tr>
+            </thead>
+            <tbody id="adminSignalsTbody">
+              <tr><td colspan="5" style="text-align:center;padding:20px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+
+    <!-- ============ TRADES TAB ============ -->
+    <section class="admin-tab-section hidden" id="tradesTab">
+      <div class="admin-users-wrap">
+        <div class="admin-users-head">
+          <div>
+            <div class="admin-section-title">Today's Trades (Paper)</div>
+            <div class="admin-section-sub">
+              Both OPEN and CLOSED positions from tradeEngine
+            </div>
+          </div>
+          <div class="admin-refresh-block">
+            <button class="admin-refresh-btn" data-reload="trades">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Qty</th>
+                <th>Entry</th>
+                <th>Target</th>
+                <th>Stop</th>
+                <th>Status</th>
+                <th>PnL (if closed)</th>
+              </tr>
+            </thead>
+            <tbody id="adminTradesTbody">
+              <tr><td colspan="7" style="text-align:center;padding:20px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============ USERS TAB ============ -->
+    <section class="admin-tab-section hidden" id="usersTab">
+      <div class="admin-users-wrap">
+        <div class="admin-users-head">
+          <div>
+            <div class="admin-section-title">Users & Access</div>
+            <div class="admin-section-sub">
+              Manage plans, broker connection, automation rights
+            </div>
+          </div>
+
+          <div class="admin-refresh-block">
+            <button class="admin-refresh-btn" data-reload="users">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Email</th>
+                <th>Plan</th>
+                <th>Broker</th>
+                <th>Auto</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersTbody">
+              <tr><td colspan="7" style="text-align:center;padding:20px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============ SYSTEM CONTROL TAB ============ -->
+    <section class="admin-tab-section hidden" id="systemTab">
+      <div class="admin-users-wrap">
+        <div class="admin-users-head">
+          <div>
+            <div class="admin-section-title">System Control</div>
+            <div class="admin-section-sub">
+              Kill switches and global config
+            </div>
+          </div>
+
+          <div class="admin-refresh-block">
+            <button class="admin-refresh-btn" data-reload="system">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Current</th>
+                <th>Description</th>
+                <th>Toggle</th>
+              </tr>
+            </thead>
+            <tbody id="adminSystemTbody">
+              <tr><td colspan="4" style="text-align:center;padding:20px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="admin-section-sub" style="margin-top:16px;">
+          These switches are global. Use carefully.
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="admin-footer">
+    <div class="container admin-footer-inner">
+      <div class="admin-foot-left">
+        © <span id="yearNow"></span> QuantPulse Internal Console
+      </div>
+      <div class="admin-foot-right">
+        Confidential • Do not share externally
+      </div>
+    </div>
+  </footer>
+
+  <script src="./js/admin.js"></script>
+</body>
+</html>
