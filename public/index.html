@@ -3,348 +3,369 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Live Intraday Strategy • Smart Scanner, Smart Entry</title>
+  <title>QuantPulse • Trade With Discipline</title>
+
+  <!-- base styles you already have -->
   <link rel="stylesheet" href="./styles/main.css" />
+  <!-- new polish layer -->
+  <link rel="stylesheet" href="./styles/landing.css" />
 </head>
-<body>
+<body class="lp-body">
 
   <!-- NAVBAR -->
-  <header class="site-header">
-    <div class="container nav-row">
-      <div class="brand">
-        <div class="brand-logo">🚀</div>
-        <div class="brand-text">
-          <div class="brand-name">QuantPulse</div>
-          <div class="brand-tag">Intraday Intelligence</div>
+  <header class="lp-nav-wrap">
+    <div class="lp-nav container">
+      <div class="lp-brand">
+        <div class="lp-logo">🚀</div>
+        <div class="lp-brand-text">
+          <div class="lp-brand-name">QuantPulse</div>
+          <div class="lp-brand-tag">Intraday Intelligence</div>
         </div>
       </div>
 
-      <nav class="main-nav">
-        <a href="#how" class="nav-link">How it Works</a>
-        <a href="#edge" class="nav-link">Why it Works</a>
-        <a href="#preview" class="nav-link">Screens</a>
-        <a href="#waitlist" class="nav-link nav-cta">Get Early Access</a>
-        <a class="nav-btn" href="./dashboard.html">Open Dashboard →</a>
+      <nav class="lp-nav-links">
+        <a href="#why" class="lp-link">Why QuantPulse</a>
+        <a href="#features" class="lp-link">Features</a>
+        <a href="#app" class="lp-link">Dashboard</a>
+        <a href="#waitlist" class="lp-link">Early Access</a>
+
+        <button class="lp-login-btn" id="openLoginBtn">Login</button>
+        <button class="lp-cta-btn" id="openSignupBtn">Get Started</button>
       </nav>
 
       <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
     </div>
 
     <div class="mobile-nav" id="mobileNav">
-      <a href="#how" class="mnav-link">How it Works</a>
-      <a href="#edge" class="mnav-link">Why it Works</a>
-      <a href="#preview" class="mnav-link">Screens</a>
-      <a href="#waitlist" class="mnav-link highlight">Get Early Access</a>
-      <a class="mnav-btn" href="./dashboard.html">Open Dashboard →</a>
+      <a href="#why" class="mnav-link">Why QuantPulse</a>
+      <a href="#features" class="mnav-link">Features</a>
+      <a href="#app" class="mnav-link">Dashboard</a>
+      <a href="#waitlist" class="mnav-link highlight">Early Access</a>
+
+      <a class="mnav-link" id="openLoginBtnMobile">Login</a>
+      <a class="mnav-link" id="openSignupBtnMobile">Get Started</a>
     </div>
   </header>
 
-  <!-- HERO -->
-  <section class="hero">
-    <div class="container hero-grid">
-      <div class="hero-copy">
-        <h1 class="hero-headline">
-          Intraday trading without guesswork.
+
+  <!-- HERO SECTION -->
+  <section class="lp-hero">
+    <div class="container lp-hero-grid">
+
+      <!-- Left: Headline + CTA -->
+      <div class="lp-hero-copy">
+        <div class="lp-eyebrow">Intraday Execution Platform</div>
+
+        <h1 class="lp-headline">
+          Trade like a machine.<br/>
+          Without trading like a gambler.
         </h1>
-        <p class="hero-sub">
-          We scan the entire market live, detect stocks that explode early,
-          wait for low-risk pullbacks using RSI(14), and simulate entries,
-          exits, targets, and stops — automatically.
+
+        <p class="lp-subtext">
+          QuantPulse watches the market live, identifies high-probability intraday moves,
+          and runs them with strict risk and fixed exits — so you don’t chase,
+          overtrade, or panic exit.
         </p>
 
-        <div class="hero-cta-row">
-          <a class="btn-primary" href="#waitlist">Get Early Access</a>
-          <a class="btn-ghost" href="./dashboard.html">See Live Console ↗</a>
+        <div class="lp-cta-row">
+          <a class="lp-primary-btn" href="#waitlist">Request Early Access</a>
+          <button class="lp-secondary-btn" id="openLoginBtnBelow">Login</button>
         </div>
 
-        <div class="hero-trust">
-          <div class="trust-item">
-            <span class="dot dot-green"></span>
-            <span>Auto paper trades with fixed target (+1.5%) & stop (-0.75%)</span>
+        <!-- Trust pills -->
+        <div class="lp-trust-row">
+          <div class="lp-trust-pill">
+            <div class="lp-pill-icon">🧠</div>
+            <div class="lp-pill-text">
+              Rule-based entries & exits
+            </div>
           </div>
-          <div class="trust-item">
-            <span class="dot dot-blue"></span>
-            <span>Your money stays in your broker account. We never auto-place real trades.</span>
+
+          <div class="lp-trust-pill">
+            <div class="lp-pill-icon">📊</div>
+            <div class="lp-pill-text">
+              Daily performance report
+            </div>
+          </div>
+
+          <div class="lp-trust-pill">
+            <div class="lp-pill-icon">🔒</div>
+            <div class="lp-pill-text">
+              You control live execution
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="hero-card">
-        <div class="hc-head">
+      <!-- Right: Glass Card Preview -->
+      <div class="lp-hero-card glass-card">
+        <div class="glass-head">
           <div>
-            <div class="hc-title">Today's Highlights</div>
-            <div class="hc-sub">Live Strategy Engine</div>
+            <div class="glass-title">Your Live Desk</div>
+            <div class="glass-sub">All signals • All trades • All risk</div>
           </div>
-          <div class="hc-badge">Running</div>
+          <div class="glass-badge">Beta</div>
         </div>
 
-        <div class="hc-body">
-          <div class="hc-row">
-            <div class="hc-label">5%+ Movers</div>
-            <div class="hc-value up">7 stocks</div>
+        <div class="glass-body">
+          <div class="glass-row">
+            <div class="glass-label">Opportunities Today</div>
+            <div class="glass-value good">Live</div>
           </div>
-          <div class="hc-row">
-            <div class="hc-label">RSI Pullback Entries</div>
-            <div class="hc-value">3 signals</div>
+          <div class="glass-row">
+            <div class="glass-label">Paper Trades Running</div>
+            <div class="glass-value">Active</div>
           </div>
-          <div class="hc-row">
-            <div class="hc-label">Open Paper Trades</div>
-            <div class="hc-value">2</div>
+          <div class="glass-row">
+            <div class="glass-label">Stop & Target</div>
+            <div class="glass-value">Predefined</div>
           </div>
-          <div class="hc-row">
-            <div class="hc-label">Closed PnL (Today)</div>
-            <div class="hc-value up">+₹2,340</div>
+          <div class="glass-row">
+            <div class="glass-label">Emotion</div>
+            <div class="glass-value">0%</div>
           </div>
         </div>
 
-        <div class="hc-foot">
-          <div class="hc-foot-label">All trades logged. Full report end of day.</div>
+        <div class="glass-foot">
+          Built for serious intraday traders who want process, not drama.
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- VALUE PROPOSITION -->
+  <section class="lp-section lp-section-soft" id="why">
+    <div class="container lp-two-col">
+      <div class="lp-block">
+        <div class="lp-section-eyebrow">Why this matters</div>
+        <h2 class="lp-section-head">
+          Most intraday traders don't lose because of strategy.
+          They lose because of behaviour.
+        </h2>
+        <p class="lp-section-text">
+          No discipline. No fixed stop. Entering late. Exiting in panic.
+          Over-trading after a loss.
+        </p>
+        <p class="lp-section-text">
+          QuantPulse is built to remove that behaviour.
+          It gives you structure, timing and accountability.
+        </p>
+
+        <div class="lp-bullets">
+          <div class="lp-bullet">
+            <div class="lp-bullet-icon bad">✘</div>
+            <div class="lp-bullet-text">No more chasing Telegram calls</div>
+          </div>
+          <div class="lp-bullet">
+            <div class="lp-bullet-icon bad">✘</div>
+            <div class="lp-bullet-text">No revenge trades after loss</div>
+          </div>
+          <div class="lp-bullet">
+            <div class="lp-bullet-icon good">✔</div>
+            <div class="lp-bullet-text">Risk-defined entries and exits</div>
+          </div>
+          <div class="lp-bullet">
+            <div class="lp-bullet-icon good">✔</div>
+            <div class="lp-bullet-text">Every trade tracked for you</div>
+          </div>
+        </div>
+
+        <div class="lp-inline-cta">
+          <a class="lp-primary-btn small" href="#waitlist">Get Access →</a>
+        </div>
+
+        <div class="lp-legal-note">
+          QuantPulse is not a tips provider, PMS, or advisor.
+          We do not tell you “what to buy”.
+          We help you execute your process with discipline.
+        </div>
+      </div>
+
+      <div class="lp-card-stack">
+        <div class="stack-card">
+          <div class="stack-head">What you get</div>
+          <div class="stack-row">
+            <div class="stack-label">Live Intraday Setups</div>
+            <div class="stack-value good">Yes</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-label">Auto Paper Trading</div>
+            <div class="stack-value good">Yes</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-label">Daily PnL Report</div>
+            <div class="stack-value good">Yes</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-label">Broker Execution</div>
+            <div class="stack-value soon">Coming</div>
+          </div>
+          <div class="stack-foot">
+            First you practice.  
+            Then you scale with confidence.
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- HOW IT WORKS -->
-  <section class="how" id="how">
+
+  <!-- FEATURES GRID -->
+  <section class="lp-section" id="features">
     <div class="container">
-      <div class="section-head">
-        <h2 class="section-title">How it works</h2>
-        <p class="section-desc">
-          This is not a "random alert" tool. It's a repeatable intraday framework.
-        </p>
+      <div class="lp-center-head">
+        <div class="lp-section-eyebrow">How QuantPulse works</div>
+        <h2 class="lp-section-head center">
+          This is not an indicator.<br/>
+          It's a full intraday workflow.
+        </h2>
       </div>
 
-      <div class="how-grid">
-        <div class="how-card">
-          <div class="how-step">Step 1</div>
-          <div class="how-head">Find Explosive Movers</div>
-          <div class="how-desc">
-            We watch hundreds of symbols from open.
-            Any stock that's up <strong>5%+ by 10:30 AM (IST)</strong> gets tagged as "momentum candidate".
+      <div class="lp-feature-grid">
+
+        <div class="feat-card">
+          <div class="feat-icon">📡</div>
+          <div class="feat-title">Live Market Scan</div>
+          <div class="feat-desc">
+            We continuously scan liquid names and surface strength.
+            You don't waste time hunting random charts.
           </div>
         </div>
 
-        <div class="how-card">
-          <div class="how-step">Step 2</div>
-          <div class="how-head">Wait For Cooldown</div>
-          <div class="how-desc">
-            After the spike, we track <strong>RSI(14) on 5-min</strong> candles.
-            We wait until RSI drops into the <strong>40–50 zone</strong>. That's the pullback.
+        <div class="feat-card">
+          <div class="feat-icon">🎯</div>
+          <div class="feat-title">Disciplined Entry Timing</div>
+          <div class="feat-desc">
+            We look for controlled pullbacks in strong names —
+            not FOMO entries at the top.
           </div>
         </div>
 
-        <div class="how-card">
-          <div class="how-step">Step 3</div>
-          <div class="how-head">Auto Paper Entry</div>
-          <div class="how-desc">
-            When RSI hits that sweet spot, we open a <strong>paper trade</strong> with
-            fixed <span class="tag">target +1.5%</span> and
-            <span class="tag">stop -0.75%</span>.
+        <div class="feat-card">
+          <div class="feat-icon">🤖</div>
+          <div class="feat-title">Auto Paper Trade</div>
+          <div class="feat-desc">
+            Each qualifying setup is executed virtually with a fixed stop and
+            predefined target. No emotions.
           </div>
         </div>
 
-        <div class="how-card">
-          <div class="how-step">Step 4</div>
-          <div class="how-head">Exit & Log</div>
-          <div class="how-desc">
-            The system tracks current price. If target hits → WIN is booked.
-            If stop hits → LOSS is booked.
-            Every trade, PnL, timestamp is saved.
+        <div class="feat-card">
+          <div class="feat-icon">📘</div>
+          <div class="feat-title">Daily PnL Report</div>
+          <div class="feat-desc">
+            End of day, you get the full breakdown.
+            Win rate, best trade, worst trade. No lies.
           </div>
         </div>
+
       </div>
     </div>
   </section>
 
-  <!-- WHY IT WORKS -->
-  <section class="edge" id="edge">
-    <div class="container edge-grid">
-      <div class="edge-copy">
-        <h2 class="section-title">Why this works (and why traders fail)</h2>
-        <p class="section-desc">
-          Most intraday traders do 2 things wrong:
-          <br/>1. Chase after the stock already moved.<br/>
-          2. Exit emotionally.
+
+  <!-- DASHBOARD PREVIEW -->
+  <section class="lp-section lp-section-soft" id="app">
+    <div class="container">
+      <div class="lp-center-head">
+        <div class="lp-section-eyebrow">Your dashboard</div>
+        <h2 class="lp-section-head center">
+          One screen.  
+          Live setups, PnL, broker status.
+        </h2>
+      </div>
+
+      <div class="lp-preview-grid">
+
+        <div class="pvx-card">
+          <div class="pvx-head-row">
+            <div class="pvx-head-title">Live Opportunity Feed</div>
+            <div class="pvx-pill">Real-time</div>
+          </div>
+          <div class="pvx-body-text">
+            High-probability intraday moves in one clean list.
+            No spam. No “maybe buy?”. Just focused opportunities.
+          </div>
+        </div>
+
+        <div class="pvx-card">
+          <div class="pvx-head-row">
+            <div class="pvx-head-title">Paper Trades</div>
+            <div class="pvx-pill">Risk-Free</div>
+          </div>
+          <div class="pvx-body-text">
+            The system simulates entries and exits for you.
+            You learn execution discipline before real capital.
+          </div>
+        </div>
+
+        <div class="pvx-card">
+          <div class="pvx-head-row">
+            <div class="pvx-head-title">Daily PnL</div>
+            <div class="pvx-pill">Accountability</div>
+          </div>
+          <div class="pvx-body-text">
+            Win rate, net PnL, best/worst trade.
+            You finally see if the approach is actually consistent.
+          </div>
+        </div>
+
+        <div class="pvx-card">
+          <div class="pvx-head-row">
+            <div class="pvx-head-title">Broker Connect</div>
+            <div class="pvx-pill pvx-pill-soon">Coming</div>
+          </div>
+          <div class="pvx-body-text">
+            Connect Zerodha / Angel One / Fyers.
+            You stay in control of when live trading is enabled.
+          </div>
+        </div>
+
+      </div>
+
+      <div class="lp-centered-cta">
+        <a class="lp-primary-btn" href="#waitlist">Get Early Access</a>
+        <a class="lp-secondary-btn" href="./app.html">View Dashboard Preview ↗</a>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- WAITLIST / LEAD CAPTURE -->
+  <section class="lp-section" id="waitlist">
+    <div class="container lp-wait-grid">
+
+      <div class="lp-wait-copy">
+        <div class="lp-section-eyebrow">Early Access</div>
+        <h2 class="lp-section-head">
+          We’re onboarding a limited group of serious intraday traders.
+        </h2>
+
+        <p class="lp-section-text">
+          You’ll get dashboard access, live idea flow, paper trades and daily reports.
+          This is where we prove discipline beats emotion.
         </p>
 
-        <ul class="edge-list">
-          <li>
-            <span class="edge-icon">✅</span>
-            We only look at stocks with <strong>proven momentum</strong> (already moved 5%+).
-          </li>
-          <li>
-            <span class="edge-icon">✅</span>
-            We don't enter at the top. We wait for <strong>controlled pullback (RSI 40-50)</strong>.
-          </li>
-          <li>
-            <span class="edge-icon">✅</span>
-            We <strong>pre-define target & stop</strong>. No panic exits.
-          </li>
-          <li>
-            <span class="edge-icon">✅</span>
-            Everything gets logged and reported daily. You can audit your edge.
-          </li>
+        <ul class="lp-checklist">
+          <li>✔ One clean intraday workspace</li>
+          <li>✔ Emotion-free execution logic</li>
+          <li>✔ Full daily PnL transparency</li>
+          <li>✔ Broker integration coming soon</li>
         </ul>
 
-        <div class="hero-cta-row">
-          <a class="btn-primary" href="#waitlist">Join Beta →</a>
-          <a class="btn-ghost" href="./dashboard.html">See Console</a>
-        </div>
-
-        <div class="micro-note">
-          We never auto-place real orders unless you explicitly connect
-          and enable live trading with your broker.
+        <div class="lp-legal-note small">
+          We do not touch your live account without permission.
+          No guaranteed returns.
         </div>
       </div>
 
-      <div class="edge-card">
-        <div class="edge-card-head">
-          Risk Control Snapshot
-        </div>
-        <div class="edge-card-body">
-          <div class="edge-row">
-            <div class="edge-label">Max risk per setup</div>
-            <div class="edge-value">0.75%</div>
-          </div>
-          <div class="edge-row">
-            <div class="edge-label">Target per setup</div>
-            <div class="edge-value up">1.5%</div>
-          </div>
-          <div class="edge-row">
-            <div class="edge-label">Trade Emotion</div>
-            <div class="edge-value">0%</div>
-          </div>
-          <div class="edge-row">
-            <div class="edge-label">Daily Report</div>
-            <div class="edge-value up">Auto Generated</div>
-          </div>
-        </div>
-        <div class="edge-card-foot">
-          Stop trading like a human. Start trading like a process.
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- PRODUCT PREVIEW -->
-  <section class="preview" id="preview">
-    <div class="container">
-      <div class="section-head center">
-        <h2 class="section-title">Your intraday control room</h2>
-        <p class="section-desc">
-          These are the live panels running behind the scenes in our dashboard.
-        </p>
-      </div>
-
-      <div class="preview-grid">
-
-        <div class="pv-card">
-          <div class="pv-head">
-            <div>5%+ Movers by 10:30 AM</div>
-            <div class="pv-tag">Scanner</div>
-          </div>
-          <div class="pv-body">
-            <ul class="pv-list">
-              <li><span class="sym">RELIANCE</span><span class="chg up">+5.4%</span></li>
-              <li><span class="sym">SBIN</span><span class="chg up">+5.1%</span></li>
-              <li><span class="sym">LT</span><span class="chg up">+6.2%</span></li>
-            </ul>
-          </div>
-          <div class="pv-foot">We track explosive leaders.</div>
-        </div>
-
-        <div class="pv-card">
-          <div class="pv-head">
-            <div>RSI Pullback Zone</div>
-            <div class="pv-tag">Entry Timing</div>
-          </div>
-          <div class="pv-body">
-            <ul class="pv-list">
-              <li><span class="sym">SBIN</span><span class="meta">RSI 44.2</span></li>
-              <li><span class="sym">LT</span><span class="meta">RSI 47.5</span></li>
-              <li><span class="sym">TCS</span><span class="meta">RSI 41.9</span></li>
-            </ul>
-          </div>
-          <div class="pv-foot">We only act when risk is low.</div>
-        </div>
-
-        <div class="pv-card">
-          <div class="pv-head">
-            <div>Open Paper Trades</div>
-            <div class="pv-tag">Auto Entry</div>
-          </div>
-          <div class="pv-body">
-            <ul class="pv-list">
-              <li>
-                <span class="sym">SBIN</span>
-                <span class="meta">Entry ₹764.50</span>
-                <span class="meta">Target +1.5%</span>
-              </li>
-              <li>
-                <span class="sym">LT</span>
-                <span class="meta">Entry ₹3,658</span>
-                <span class="meta">SL -0.75%</span>
-              </li>
-            </ul>
-          </div>
-          <div class="pv-foot">No emotions. Rules only.</div>
-        </div>
-
-        <div class="pv-card">
-          <div class="pv-head">
-            <div>Daily PnL Report</div>
-            <div class="pv-tag">Accountability</div>
-          </div>
-          <div class="pv-body">
-            <ul class="pv-list">
-              <li>
-                <span class="sym">WIN %</span>
-                <span class="meta up">62%</span>
-              </li>
-              <li>
-                <span class="sym">Net PnL</span>
-                <span class="meta up">+₹2,340</span>
-              </li>
-              <li>
-                <span class="sym">Worst Loss</span>
-                <span class="meta">-₹420</span>
-              </li>
-            </ul>
-          </div>
-          <div class="pv-foot">We show you everything, good or bad.</div>
-        </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- WAITLIST / CTA -->
-  <section class="waitlist" id="waitlist">
-    <div class="container wait-grid">
-      <div class="wait-copy">
-        <h2 class="section-title">Get early access</h2>
-        <p class="section-desc">
-          This is currently running for internal testing (paper trading only).
-          We are onboarding a small group of serious intraday traders.
-        </p>
-
-        <ul class="wait-points">
-          <li>✔ Live scanner + live signals</li>
-          <li>✔ Auto paper trade execution</li>
-          <li>✔ Daily performance report</li>
-          <li>✔ Risk-first approach</li>
-        </ul>
-
-        <div class="micro-note">
-          100% transparent. 0% Telegram tips nonsense.
-        </div>
-      </div>
-
-      <div class="wait-card">
+      <div class="lp-form-card">
         <form id="waitlistForm" class="wait-form">
           <div class="form-head">
-            <div class="form-title">Request Invite</div>
-            <div class="form-sub">No spam. We’ll contact you personally.</div>
+            <div class="form-title">Request Access</div>
+            <div class="form-sub">No spam. We’ll reach out directly.</div>
           </div>
 
           <div class="form-field">
@@ -371,68 +392,155 @@
             </select>
           </div>
 
-          <button class="btn-primary form-btn" type="submit" id="waitlistSubmitBtn">
+          <button class="lp-primary-btn block" type="submit" id="waitlistSubmitBtn">
             Request Access →
           </button>
 
           <div class="form-note" id="waitlistMsg">
-            We’ll never auto-trade your live account without permission.
+            You’ll start in paper mode. Live trading unlocks later.
           </div>
         </form>
       </div>
+
     </div>
   </section>
 
+
   <!-- FOOTER -->
-  <footer class="site-footer">
-    <div class="container footer-grid">
-      <div class="footer-col">
-        <div class="brand">
-          <div class="brand-logo">🚀</div>
+  <footer class="lp-footer">
+    <div class="container lp-footer-grid">
+
+      <div class="lp-foot-brand">
+        <div class="lp-brand">
+          <div class="lp-logo">🚀</div>
           <div>
-            <div class="brand-name">QuantPulse</div>
-            <div class="brand-tag">Intraday Intelligence</div>
+            <div class="lp-brand-name">QuantPulse</div>
+            <div class="lp-brand-tag">Intraday Intelligence</div>
           </div>
         </div>
-        <p class="footer-desc">
-          We build disciplined intraday tools: scanners, pullback timing,
-          auto risk control, and honest reporting.
+
+        <p class="lp-foot-text">
+          QuantPulse helps intraday traders run with structure, not emotion.
+          Scan. Execute. Review. Improve.
         </p>
-        <p class="footer-small">
-          We are not a broker, advisor, PMS, or research analyst.
-          This is for education & strategy testing.
+
+        <p class="lp-foot-legal">
+          QuantPulse is not a broker, PMS, advisor, or tips provider.
+          We do not manage funds or promise returns.
+          Educational / research use only.
         </p>
       </div>
 
-      <div class="footer-col">
-        <div class="footer-head">Platform</div>
-        <a href="#how" class="footer-link">How it Works</a>
-        <a href="#preview" class="footer-link">Screenshots</a>
-        <a href="./dashboard.html" class="footer-link">Live Console</a>
-        <a href="#waitlist" class="footer-link">Request Access</a>
+      <div class="lp-foot-col">
+        <div class="lp-foot-head">Product</div>
+        <a href="#why" class="lp-foot-link">Why QuantPulse</a>
+        <a href="#features" class="lp-foot-link">Features</a>
+        <a href="#app" class="lp-foot-link">Dashboard</a>
+        <a href="#waitlist" class="lp-foot-link">Early Access</a>
       </div>
 
-      <div class="footer-col">
-        <div class="footer-head">Connect</div>
-        <div class="footer-link">Email: support@example.com</div>
-        <div class="footer-link">WhatsApp: +91 98xxxxxx12</div>
-        <div class="footer-link">India / Remote</div>
+      <div class="lp-foot-col">
+        <div class="lp-foot-head">Contact</div>
+        <div class="lp-foot-link">support@example.com</div>
+        <div class="lp-foot-link">WhatsApp: +91 98xxxxxx12</div>
+        <div class="lp-foot-link">India / Remote</div>
       </div>
     </div>
 
-    <div class="footer-bottom">
-      <div class="container fbottom-row">
-        <div class="fbottom-left">
+    <div class="lp-foot-bottom">
+      <div class="container lp-foot-bottom-row">
+        <div class="lp-foot-left">
           © <span id="yearNow"></span> QuantPulse. All rights reserved.
         </div>
-        <div class="fbottom-right">
-          <div class="fbottom-legal">
-            Educational use only. No guaranteed returns.
-          </div>
+        <div class="lp-foot-right">
+          No guaranteed returns. You trade at your own risk.
         </div>
       </div>
     </div>
   </footer>
+
+
+  <!-- LOGIN MODAL -->
+  <div class="modal-overlay" id="loginModal">
+    <div class="modal-card">
+      <button class="modal-close" data-close-modal>&times;</button>
+      <div class="modal-head">
+        <div class="modal-title">Welcome back</div>
+        <div class="modal-sub">Log in to your dashboard</div>
+      </div>
+
+      <form id="loginForm" class="modal-form">
+        <div class="form-field">
+          <label>Email</label>
+          <input type="email" name="email" placeholder="you@example.com" required />
+        </div>
+
+        <div class="form-field">
+          <label>Password</label>
+          <input type="password" name="password" placeholder="••••••••" required />
+        </div>
+
+        <button class="lp-primary-btn block" type="submit" id="loginSubmitBtn">
+          Log in →
+        </button>
+
+        <div class="form-note" id="loginMsg">
+          After login you'll be redirected to your dashboard.
+        </div>
+
+        <div class="modal-alt">
+          New here?
+          <button type="button" class="link-btn" id="swapToSignup">Create account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- SIGNUP MODAL -->
+  <div class="modal-overlay" id="signupModal">
+    <div class="modal-card">
+      <button class="modal-close" data-close-modal>&times;</button>
+      <div class="modal-head">
+        <div class="modal-title">Get Started</div>
+        <div class="modal-sub">Paper trade first. Go live later.</div>
+      </div>
+
+      <form id="signupForm" class="modal-form">
+        <div class="form-field">
+          <label>Full Name</label>
+          <input type="text" name="name" placeholder="Rahul Sharma" required />
+        </div>
+
+        <div class="form-field">
+          <label>Email</label>
+          <input type="email" name="email" placeholder="you@example.com" required />
+        </div>
+
+        <div class="form-field">
+          <label>Phone / WhatsApp</label>
+          <input type="tel" name="phone" placeholder="+91 98xxxxxx12" />
+        </div>
+
+        <div class="form-field">
+          <label>Password</label>
+          <input type="password" name="password" placeholder="Choose a password" required />
+        </div>
+
+        <button class="lp-primary-btn block" type="submit" id="signupSubmitBtn">
+          Create Account →
+        </button>
+
+        <div class="form-note" id="signupMsg">
+          We will NOT place live trades unless you enable it.
+        </div>
+
+        <div class="modal-alt">
+          Already have an account?
+          <button type="button" class="link-btn" id="swapToLogin">Log in</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="./js/main.js"></script>
 </body>

@@ -10,6 +10,8 @@ const m2Routes = require("./routes/m2.routes");
 const tradeRoutes = require("./routes/trade.routes");
 const { startScheduler } = require("./scheduler");
 const reportRoutes = require("./routes/report.routes");
+const authRoutes = require("./routes/auth.routes");
+const userRoutes = require("./routes/user.routes");
 
 const app = express();
 app.use(express.json());
@@ -27,6 +29,9 @@ app.use("/m1", m1Routes);
 app.use("/m2", m2Routes);
 app.use("/trade", tradeRoutes);
 app.use("/report", reportRoutes);
+app.use("/auth", authRoutes);
+app.use("/user", userRoutes);
+
 
 // error handler
 app.use(errorHandler);
