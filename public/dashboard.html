@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>M1 Screener Dashboard</title>
+
+  <style>
+    :root {
+      --navy-900:#0b1d39;
+      --navy-700:#16325f;
+      --bg-main:#f7faff;
+      --bg-card:#ffffff;
+      --border:#e4ecff;
+      --text-dark:#0a1628;
+      --text-dim:#6b7a96;
+      --accent:#2d7ff9;
+      --accent-soft:#e9f1ff;
+      --good:#0ea77f;
+      --shadow:0 14px 32px rgba(11,29,57,0.12);
+      --radius-lg:16px;
+      --radius-md:12px;
+    }
+
+    * { box-sizing:border-box; }
+
+    body {
+      margin:0;
+      font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      background:linear-gradient(180deg,var(--bg-main),#fff 60%);
+      color:var(--text-dark);
+    }
+
+    header {
+      background:linear-gradient(135deg,var(--navy-900),var(--navy-700));
+      color:#fff;
+      padding:16px 20px;
+      box-shadow:var(--shadow);
+      position:sticky;
+      top:0;
+      z-index:10;
+    }
+    header .title {
+      font-size:16px;
+      font-weight:600;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      color:#fff;
+    }
+    header .badge {
+      background:rgba(255,255,255,0.12);
+      padding:4px 8px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:500;
+    }
+
+    main {
+      max-width:1200px;
+      margin:0 auto;
+      padding:20px;
+      display:grid;
+      grid-template-columns:1fr;
+      gap:20px;
+    }
+
+    @media(min-width:900px){
+      main {
+        grid-template-columns:1fr 2fr;
+        align-items:start;
+      }
+    }
+
+    .card {
+      background:var(--bg-card);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .card-head {
+      background:linear-gradient(#f9fbff,#f2f6ff);
+      border-bottom:1px solid var(--border);
+      padding:14px 16px;
+      font-weight:600;
+      font-size:14px;
+      color:var(--navy-700);
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      flex-wrap:wrap;
+      row-gap:8px;
+    }
+    .card-head small {
+      color:var(--text-dim);
+      font-weight:400;
+      font-size:12px;
+    }
+
+    .card-body {
+      padding:16px;
+    }
+
+    .row {
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .stat-block {
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      padding:12px 14px;
+      flex:1;
+      min-width:110px;
+    }
+    .stat-label {
+      font-size:12px;
+      color:var(--text-dim);
+      margin-bottom:4px;
+    }
+    .stat-value {
+      font-size:18px;
+      font-weight:600;
+      color:var(--text-dark);
+      line-height:1.2;
+    }
+    .ok { color:var(--good); }
+    .notok { color:#d11f4a; }
+
+    .btn {
+      appearance:none;
+      border:none;
+      cursor:pointer;
+      font-weight:600;
+      border-radius:var(--radius-md);
+      padding:10px 14px;
+      box-shadow:0 8px 20px rgba(45,127,249,0.24);
+      background:var(--accent);
+      color:#fff;
+      font-size:14px;
+    }
+    .btn:disabled {
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .btn.small {
+      font-size:13px;
+      padding:8px 12px;
+      box-shadow:none;
+    }
+    .btn.alt {
+      background:var(--accent-soft);
+      color:var(--accent);
+      box-shadow:none;
+    }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      border:1px solid var(--border);
+      border-radius:var(--radius-md);
+      overflow:hidden;
+      font-size:14px;
+    }
+    thead th {
+      background:#f6f9ff;
+      color:var(--navy-700);
+      text-align:left;
+      font-weight:600;
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+      font-size:13px;
+    }
+    tbody td {
+      padding:10px 12px;
+      border-bottom:1px solid #eef2ff;
+      background:#fff;
+      font-size:13px;
+    }
+    tbody tr:hover td {
+      background:#fdfefe;
+    }
+    .up {
+      color:var(--good);
+      font-weight:600;
+    }
+
+    #logBox {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background:#0b1d39;
+      color:#fff;
+      border-radius:var(--radius-md);
+      padding:12px;
+      font-size:12px;
+      max-height:180px;
+      overflow:auto;
+      line-height:1.4;
+      border:1px solid #10254a;
+    }
+    .log-head {
+      font-size:12px;
+      color:#9fb2d8;
+      margin-bottom:6px;
+      font-weight:500;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <span>M1 Screener Dashboard</span>
+    <span class="badge">10:30AM तक 5%+ Movers</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- LEFT: Engine control + status -->
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <div>Engine Status</div>
+        <small>FYERS live ticks से %change निकाल रहे हैं</small>
+      </div>
+      <div class="row">
+        <button id="btnStart" class="btn small">Start</button>
+        <button id="btnStop" class="btn small alt">Stop</button>
+        <button id="btnRefresh" class="btn small alt">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <div class="row" style="margin-bottom:16px;">
+        <div class="stat-block">
+          <div class="stat-label">Engine</div>
+          <div class="stat-value" id="stEngine">--</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-label">Before Cutoff?</div>
+          <div class="stat-value" id="stCutoff">--</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-label">Universe Size</div>
+          <div class="stat-value" id="stUni">--</div>
+        </div>
+      </div>
+
+      <div class="log-head">Latest Movers Snapshot</div>
+      <div id="logBox">No data yet…</div>
+    </div>
+  </section>
+
+  <!-- RIGHT: Movers table -->
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <div>Top Movers ≥5%</div>
+        <small>symbol | prevClose | LTP | %Change</small>
+      </div>
+      <div class="row">
+        <button id="btnLoadMovers" class="btn small">Load Movers</button>
+      </div>
+    </div>
+
+    <div class="card-body" style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Prev Close</th>
+            <th>LTP</th>
+            <th>% Chg</th>
+          </tr>
+        </thead>
+        <tbody id="moversBody">
+          <tr><td colspan="4">No data</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  const api = location.origin;
+  const $ = sel => document.querySelector(sel);
+
+  // helpers
+  async function jget(url){
+    const r = await fetch(url);
+    return r.json();
+  }
+  async function jpost(url, body){
+    const r = await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body||{})
+    });
+    return r.json();
+  }
+  function writeLog(msgObj){
+    const box = $('#logBox');
+    const ts = new Date().toLocaleTimeString('en-IN',{hour12:false});
+    box.textContent = `[${ts}] ${JSON.stringify(msgObj,null,0)}\n` + box.textContent;
+  }
+
+  async function loadStatus(){
+    try {
+      const st = await jget(`${api}/m1/status`);
+      $('#stEngine').textContent = st.engineOn ? "Running ✅" : "Stopped ⛔";
+      $('#stEngine').className = 'stat-value ' + (st.engineOn ? 'ok':'notok');
+
+      $('#stCutoff').textContent = st.beforeCutoff ? "Yes" : "No";
+      $('#stCutoff').className = 'stat-value ' + (st.beforeCutoff ? 'ok':'notok');
+
+      $('#stUni').textContent = st.universe || '--';
+
+      if(st.lastError){
+        writeLog({error: st.lastError});
+      }
+    } catch(e){
+      writeLog({statusError:e.message});
+    }
+  }
+
+  async function loadMovers(){
+    try {
+      const mv = await jget(`${api}/m1/movers`);
+      const body = $('#moversBody');
+      body.innerHTML = '';
+
+      if(!mv.ok){
+        body.innerHTML = `<tr><td colspan="4">${mv.error || 'Engine off / कोई डेटा नहीं'}</td></tr>`;
+        writeLog({movers_error: mv});
+        return;
+      }
+      if(!mv.data.length){
+        body.innerHTML = `<tr><td colspan="4">कोई stock अभी तक 5%+ नहीं है</td></tr>`;
+        writeLog({movers:"none"});
+        return;
+      }
+
+      mv.data.forEach(row=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${row.symbol}</td>
+          <td>${Number(row.prevClose).toFixed(2)}</td>
+          <td>${Number(row.ltp).toFixed(2)}</td>
+          <td class="up">${Number(row.changePct).toFixed(2)}%</td>
+        `;
+        body.appendChild(tr);
+      });
+
+      writeLog({moversSample: mv.data.slice(0,3)});
+    } catch(e){
+      writeLog({moversFetchError:e.message});
+    }
+  }
+
+  async function startEngine(){
+    $('#btnStart').disabled = true;
+    const resp = await jpost(`${api}/m1/start`);
+    writeLog({startResp: resp});
+    $('#btnStart').disabled = false;
+    await loadStatus();
+    await loadMovers();
+  }
+
+  async function stopEngine(){
+    $('#btnStop').disabled = true;
+    const resp = await jpost(`${api}/m1/stop`);
+    writeLog({stopResp: resp});
+    $('#btnStop').disabled = false;
+    await loadStatus();
+  }
+
+  $('#btnStart').addEventListener('click', startEngine);
+  $('#btnStop').addEventListener('click', stopEngine);
+  $('#btnRefresh').addEventListener('click', async ()=>{
+    await loadStatus();
+    await loadMovers();
+  });
+  $('#btnLoadMovers').addEventListener('click', loadMovers);
+
+  // auto refresh every 20 seconds for movers (while engine running)
+  setInterval(async ()=>{
+    const st = await jget(`${api}/m1/status`);
+    if(st.engineOn){
+      await loadMovers();
+      await loadStatus();
+    }
+  }, 20000);
+
+  // initial load
+  loadStatus();
+  loadMovers();
+})();
+</script>
+
+</body>
+</html>
