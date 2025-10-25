@@ -6,6 +6,10 @@ const path = require("path");
 const connectDB = require("./config/db");
 const m1Routes = require("./routes/m1.routes");
 const errorHandler = require("./middlewares/errorHandler");
+const m2Routes = require("./routes/m2.routes");
+const tradeRoutes = require("./routes/trade.routes");
+const { startScheduler } = require("./scheduler");
+const reportRoutes = require("./routes/report.routes");
 
 const app = express();
 app.use(express.json());
@@ -18,7 +22,11 @@ connectDB();
 app.use(express.static(path.join(__dirname, "public")));
 
 // API routes
+
 app.use("/m1", m1Routes);
+app.use("/m2", m2Routes);
+app.use("/trade", tradeRoutes);
+app.use("/report", reportRoutes);
 
 // error handler
 app.use(errorHandler);
@@ -27,4 +35,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://127.0.0.1:${PORT}`);
   console.log(`📊 Dashboard: http://127.0.0.1:${PORT}/dashboard.html`);
+  startScheduler();
 });
+
+

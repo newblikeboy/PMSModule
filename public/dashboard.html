@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="hi">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -7,401 +8,762 @@
 
   <style>
     :root {
-      --navy-900:#0b1d39;
-      --navy-700:#16325f;
-      --bg-main:#f7faff;
-      --bg-card:#ffffff;
-      --border:#e4ecff;
-      --text-dark:#0a1628;
-      --text-dim:#6b7a96;
-      --accent:#2d7ff9;
-      --accent-soft:#e9f1ff;
-      --good:#0ea77f;
-      --shadow:0 14px 32px rgba(11,29,57,0.12);
-      --radius-lg:16px;
-      --radius-md:12px;
+      --navy-900: #0b1d39;
+      --navy-700: #16325f;
+      --bg-main: #f7faff;
+      --bg-card: #ffffff;
+      --border: #e4ecff;
+      --text-dark: #0a1628;
+      --text-dim: #6b7a96;
+      --accent: #2d7ff9;
+      --accent-soft: #e9f1ff;
+      --good: #0ea77f;
+      --shadow: 0 14px 32px rgba(11, 29, 57, 0.12);
+      --radius-lg: 16px;
+      --radius-md: 12px;
     }
 
-    * { box-sizing:border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
-      margin:0;
-      font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-      background:linear-gradient(180deg,var(--bg-main),#fff 60%);
-      color:var(--text-dark);
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(180deg, var(--bg-main), #fff 60%);
+      color: var(--text-dark);
     }
 
     header {
-      background:linear-gradient(135deg,var(--navy-900),var(--navy-700));
-      color:#fff;
-      padding:16px 20px;
-      box-shadow:var(--shadow);
-      position:sticky;
-      top:0;
-      z-index:10;
+      background: linear-gradient(135deg, var(--navy-900), var(--navy-700));
+      color: #fff;
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
+
     header .title {
-      font-size:16px;
-      font-weight:600;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      color:#fff;
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
     }
+
     header .badge {
-      background:rgba(255,255,255,0.12);
-      padding:4px 8px;
-      border-radius:999px;
-      font-size:12px;
-      font-weight:500;
+      background: rgba(255, 255, 255, 0.12);
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
     }
 
     main {
-      max-width:1200px;
-      margin:0 auto;
-      padding:20px;
-      display:grid;
-      grid-template-columns:1fr;
-      gap:20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
     }
 
-    @media(min-width:900px){
+    @media(min-width:1100px) {
       main {
-        grid-template-columns:1fr 2fr;
-        align-items:start;
+        grid-template-columns: 1fr 1fr;
+        align-items: start;
       }
     }
 
+    @media(min-width:1500px) {
+      main {
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        /* अगर चाहो 4 in a row */
+      }
+    }
+
+
+
     .card {
-      background:var(--bg-card);
-      border:1px solid var(--border);
-      border-radius:var(--radius-lg);
-      box-shadow:var(--shadow);
-      overflow:hidden;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
     }
+
     .card-head {
-      background:linear-gradient(#f9fbff,#f2f6ff);
-      border-bottom:1px solid var(--border);
-      padding:14px 16px;
-      font-weight:600;
-      font-size:14px;
-      color:var(--navy-700);
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      flex-wrap:wrap;
-      row-gap:8px;
+      background: linear-gradient(#f9fbff, #f2f6ff);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--navy-700);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      row-gap: 8px;
     }
+
     .card-head small {
-      color:var(--text-dim);
-      font-weight:400;
-      font-size:12px;
+      color: var(--text-dim);
+      font-weight: 400;
+      font-size: 12px;
     }
 
     .card-body {
-      padding:16px;
+      padding: 16px;
     }
 
     .row {
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
     }
 
     .stat-block {
-      background:#fff;
-      border:1px solid var(--border);
-      border-radius:var(--radius-md);
-      padding:12px 14px;
-      flex:1;
-      min-width:110px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      flex: 1;
+      min-width: 110px;
     }
+
     .stat-label {
-      font-size:12px;
-      color:var(--text-dim);
-      margin-bottom:4px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
     }
+
     .stat-value {
-      font-size:18px;
-      font-weight:600;
-      color:var(--text-dark);
-      line-height:1.2;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-dark);
+      line-height: 1.2;
     }
-    .ok { color:var(--good); }
-    .notok { color:#d11f4a; }
+
+    .ok {
+      color: var(--good);
+    }
+
+    .notok {
+      color: #d11f4a;
+    }
 
     .btn {
-      appearance:none;
-      border:none;
-      cursor:pointer;
-      font-weight:600;
-      border-radius:var(--radius-md);
-      padding:10px 14px;
-      box-shadow:0 8px 20px rgba(45,127,249,0.24);
-      background:var(--accent);
-      color:#fff;
-      font-size:14px;
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      box-shadow: 0 8px 20px rgba(45, 127, 249, 0.24);
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
     }
+
     .btn:disabled {
-      opacity:.6;
-      cursor:not-allowed;
+      opacity: .6;
+      cursor: not-allowed;
     }
+
     .btn.small {
-      font-size:13px;
-      padding:8px 12px;
-      box-shadow:none;
+      font-size: 13px;
+      padding: 8px 12px;
+      box-shadow: none;
     }
+
     .btn.alt {
-      background:var(--accent-soft);
-      color:var(--accent);
-      box-shadow:none;
+      background: var(--accent-soft);
+      color: var(--accent);
+      box-shadow: none;
     }
 
     table {
-      width:100%;
-      border-collapse:collapse;
-      border:1px solid var(--border);
-      border-radius:var(--radius-md);
-      overflow:hidden;
-      font-size:14px;
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      font-size: 14px;
     }
+
     thead th {
-      background:#f6f9ff;
-      color:var(--navy-700);
-      text-align:left;
-      font-weight:600;
-      padding:10px 12px;
-      border-bottom:1px solid var(--border);
-      white-space:nowrap;
-      font-size:13px;
+      background: #f6f9ff;
+      color: var(--navy-700);
+      text-align: left;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      font-size: 13px;
     }
+
     tbody td {
-      padding:10px 12px;
-      border-bottom:1px solid #eef2ff;
-      background:#fff;
-      font-size:13px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #eef2ff;
+      background: #fff;
+      font-size: 13px;
     }
+
     tbody tr:hover td {
-      background:#fdfefe;
+      background: #fdfefe;
     }
+
     .up {
-      color:var(--good);
-      font-weight:600;
+      color: var(--good);
+      font-weight: 600;
     }
 
     #logBox {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      background:#0b1d39;
-      color:#fff;
-      border-radius:var(--radius-md);
-      padding:12px;
-      font-size:12px;
-      max-height:180px;
-      overflow:auto;
-      line-height:1.4;
-      border:1px solid #10254a;
+      background: #0b1d39;
+      color: #fff;
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-size: 12px;
+      max-height: 180px;
+      overflow: auto;
+      line-height: 1.4;
+      border: 1px solid #10254a;
     }
+
     .log-head {
-      font-size:12px;
-      color:#9fb2d8;
-      margin-bottom:6px;
-      font-weight:500;
+      font-size: 12px;
+      color: #9fb2d8;
+      margin-bottom: 6px;
+      font-weight: 500;
     }
   </style>
 </head>
+
 <body>
-<header>
-  <div class="title">
-    <span>M1 Screener Dashboard</span>
-    <span class="badge">10:30AM तक 5%+ Movers</span>
-  </div>
-</header>
-
-<main>
-
-  <!-- LEFT: Engine control + status -->
-  <section class="card">
-    <div class="card-head">
-      <div>
-        <div>Engine Status</div>
-        <small>FYERS live ticks से %change निकाल रहे हैं</small>
-      </div>
-      <div class="row">
-        <button id="btnStart" class="btn small">Start</button>
-        <button id="btnStop" class="btn small alt">Stop</button>
-        <button id="btnRefresh" class="btn small alt">Refresh</button>
-      </div>
+  <header>
+    <div class="title">
+      <span>M1 Screener Dashboard</span>
+      <span class="badge">10:30AM तक 5%+ Movers</span>
     </div>
+  </header>
 
-    <div class="card-body">
-      <div class="row" style="margin-bottom:16px;">
-        <div class="stat-block">
-          <div class="stat-label">Engine</div>
-          <div class="stat-value" id="stEngine">--</div>
+  <main style="grid-template-columns:1fr;">
+
+    <!-- LEFT: Engine control + status -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div>Engine Status</div>
+          <small>FYERS live ticks से %change निकाल रहे हैं</small>
         </div>
-        <div class="stat-block">
-          <div class="stat-label">Before Cutoff?</div>
-          <div class="stat-value" id="stCutoff">--</div>
-        </div>
-        <div class="stat-block">
-          <div class="stat-label">Universe Size</div>
-          <div class="stat-value" id="stUni">--</div>
+        <div class="row">
+          <button id="btnStart" class="btn small">Start</button>
+          <button id="btnStop" class="btn small alt">Stop</button>
+          <button id="btnRefresh" class="btn small alt">Refresh</button>
         </div>
       </div>
 
-      <div class="log-head">Latest Movers Snapshot</div>
-      <div id="logBox">No data yet…</div>
-    </div>
-  </section>
+      <div class="card-body">
+        <div class="row" style="margin-bottom:16px;">
+          <div class="stat-block">
+            <div class="stat-label">Engine</div>
+            <div class="stat-value" id="stEngine">--</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Before Cutoff?</div>
+            <div class="stat-value" id="stCutoff">--</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Universe Size</div>
+            <div class="stat-value" id="stUni">--</div>
+          </div>
+        </div>
 
-  <!-- RIGHT: Movers table -->
-  <section class="card">
-    <div class="card-head">
-      <div>
-        <div>Top Movers ≥5%</div>
-        <small>symbol | prevClose | LTP | %Change</small>
+        <div class="log-head">Latest Movers Snapshot</div>
+        <div id="logBox">No data yet…</div>
       </div>
-      <div class="row">
-        <button id="btnLoadMovers" class="btn small">Load Movers</button>
+    </section>
+
+
+
+
+
+    <!-- RIGHT: Movers table -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div>Top Movers ≥5%</div>
+          <small>symbol | prevClose | LTP | %Change</small>
+        </div>
+        <div class="row">
+          <button id="btnLoadMovers" class="btn small">Load Movers</button>
+        </div>
       </div>
-    </div>
 
-    <div class="card-body" style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Prev Close</th>
-            <th>LTP</th>
-            <th>% Chg</th>
-          </tr>
-        </thead>
-        <tbody id="moversBody">
-          <tr><td colspan="4">No data</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+      <div class="card-body" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Prev Close</th>
+              <th>LTP</th>
+              <th>% Chg</th>
+            </tr>
+          </thead>
+          <tbody id="moversBody">
+            <tr>
+              <td colspan="4">No data</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-</main>
+    <!-- RSI SIGNALS CARD -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div>RSI Entry Zone (40 - 50)</div>
+          <small>ये वो stocks हैं जिनका RSI(14,5m) buyable pullback zone में है</small>
+        </div>
+        <div class="row">
+          <button id="btnRunScan" class="btn small">Scan Now</button>
+          <button id="btnLoadSignals" class="btn small alt">Load Saved</button>
+        </div>
+      </div>
 
-<script>
-(function(){
-  const api = location.origin;
-  const $ = sel => document.querySelector(sel);
+      <div class="card-body" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>RSI(14)</th>
+              <th>In Zone?</th>
+              <th>%Chg</th>
+              <th>LTP</th>
+            </tr>
+          </thead>
+          <tbody id="signalsBody">
+            <tr>
+              <td colspan="5">No data</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-  // helpers
-  async function jget(url){
-    const r = await fetch(url);
-    return r.json();
-  }
-  async function jpost(url, body){
-    const r = await fetch(url,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body||{})
-    });
-    return r.json();
-  }
-  function writeLog(msgObj){
-    const box = $('#logBox');
-    const ts = new Date().toLocaleTimeString('en-IN',{hour12:false});
-    box.textContent = `[${ts}] ${JSON.stringify(msgObj,null,0)}\n` + box.textContent;
-  }
+    <!-- PAPER TRADES / PnL CARD -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div>Paper Trades / PnL</div>
+          <small>Auto-entry from RSI zone, target +1.5%, stop -0.75%</small>
+        </div>
+        <div class="row">
+          <button id="btnReloadTrades" class="btn small">Reload</button>
+        </div>
+      </div>
 
-  async function loadStatus(){
-    try {
-      const st = await jget(`${api}/m1/status`);
-      $('#stEngine').textContent = st.engineOn ? "Running ✅" : "Stopped ⛔";
-      $('#stEngine').className = 'stat-value ' + (st.engineOn ? 'ok':'notok');
+      <div class="card-body" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Entry</th>
+              <th>Target</th>
+              <th>Stop</th>
+              <th>Status</th>
+              <th>ExitPx</th>
+              <th>PnL (%)</th>
+              <th>Close</th>
+            </tr>
+          </thead>
+          <tbody id="tradesBody">
+            <tr>
+              <td colspan="9">No trades yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-      $('#stCutoff').textContent = st.beforeCutoff ? "Yes" : "No";
-      $('#stCutoff').className = 'stat-value ' + (st.beforeCutoff ? 'ok':'notok');
+    <!-- DAILY REPORT CARD -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div>Daily Report (Today)</div>
+          <small>Summary of all paper trades (PnL, wins, losses)</small>
+        </div>
+        <div class="row">
+          <button id="btnLoadReport" class="btn small">Refresh</button>
+          <a id="btnDownloadCSV" class="btn small alt" style="text-decoration:none;display:inline-block;"
+            href="/report/daily.csv" download>
+            CSV
+          </a>
+        </div>
+      </div>
 
-      $('#stUni').textContent = st.universe || '--';
+      <div class="card-body">
+        <div class="row" style="margin-bottom:12px;">
+          <div class="stat-block">
+            <div class="stat-label">Closed Trades</div>
+            <div class="stat-value" id="repClosed">--</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Wins / Losses</div>
+            <div class="stat-value" id="repWL">--</div>
+          </div>
+        </div>
 
-      if(st.lastError){
-        writeLog({error: st.lastError});
+        <div class="row" style="margin-bottom:12px;">
+          <div class="stat-block">
+            <div class="stat-label">Gross PnL (₹)</div>
+            <div class="stat-value" id="repPnL">--</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Avg PnL / Trade</div>
+            <div class="stat-value" id="repAvg">--</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="stat-block" style="flex:1;">
+            <div class="stat-label">Best Trade</div>
+            <div class="stat-value" id="repBest">--</div>
+          </div>
+          <div class="stat-block" style="flex:1;">
+            <div class="stat-label">Worst Trade</div>
+            <div class="stat-value" id="repWorst">--</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+
+
+  <script>
+    (function () {
+      const api = location.origin;
+      const $ = sel => document.querySelector(sel);
+
+      // helpers
+      async function jget(url) {
+        const r = await fetch(url);
+        return r.json();
       }
-    } catch(e){
-      writeLog({statusError:e.message});
-    }
-  }
-
-  async function loadMovers(){
-    try {
-      const mv = await jget(`${api}/m1/movers`);
-      const body = $('#moversBody');
-      body.innerHTML = '';
-
-      if(!mv.ok){
-        body.innerHTML = `<tr><td colspan="4">${mv.error || 'Engine off / कोई डेटा नहीं'}</td></tr>`;
-        writeLog({movers_error: mv});
-        return;
+      async function jpost(url, body) {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {})
+        });
+        return r.json();
       }
-      if(!mv.data.length){
-        body.innerHTML = `<tr><td colspan="4">कोई stock अभी तक 5%+ नहीं है</td></tr>`;
-        writeLog({movers:"none"});
-        return;
+      function writeLog(msgObj) {
+        const box = $('#logBox');
+        const ts = new Date().toLocaleTimeString('en-IN', { hour12: false });
+        box.textContent = `[${ts}] ${JSON.stringify(msgObj, null, 0)}\n` + box.textContent;
       }
 
-      mv.data.forEach(row=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
+      async function loadStatus() {
+        try {
+          const st = await jget(`${api}/m1/status`);
+          $('#stEngine').textContent = st.engineOn ? "Running ✅" : "Stopped ⛔";
+          $('#stEngine').className = 'stat-value ' + (st.engineOn ? 'ok' : 'notok');
+
+          $('#stCutoff').textContent = st.beforeCutoff ? "Yes" : "No";
+          $('#stCutoff').className = 'stat-value ' + (st.beforeCutoff ? 'ok' : 'notok');
+
+          $('#stUni').textContent = st.universe || '--';
+
+          if (st.lastError) {
+            writeLog({ error: st.lastError });
+          }
+        } catch (e) {
+          writeLog({ statusError: e.message });
+        }
+      }
+
+      async function loadMovers() {
+        try {
+          const mv = await jget(`${api}/m1/movers`);
+          const body = $('#moversBody');
+          body.innerHTML = '';
+
+          if (!mv.ok) {
+            body.innerHTML = `<tr><td colspan="4">${mv.error || 'Engine off / कोई डेटा नहीं'}</td></tr>`;
+            writeLog({ movers_error: mv });
+            return;
+          }
+          if (!mv.data.length) {
+            body.innerHTML = `<tr><td colspan="4">कोई stock अभी तक 5%+ नहीं है</td></tr>`;
+            writeLog({ movers: "none" });
+            return;
+          }
+
+          mv.data.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
           <td>${row.symbol}</td>
           <td>${Number(row.prevClose).toFixed(2)}</td>
           <td>${Number(row.ltp).toFixed(2)}</td>
           <td class="up">${Number(row.changePct).toFixed(2)}%</td>
         `;
-        body.appendChild(tr);
+            body.appendChild(tr);
+          });
+
+          writeLog({ moversSample: mv.data.slice(0, 3) });
+        } catch (e) {
+          writeLog({ moversFetchError: e.message });
+        }
+      }
+
+      async function runScanNow() {
+        // This will compute RSI for current movers and store to DB.
+        try {
+          const resp = await jpost(`${api}/m2/scan`);
+          renderSignals(resp);
+          writeLog({ scanResp: resp });
+        } catch (e) {
+          writeLog({ scanErr: e.message });
+        }
+      }
+
+      async function loadSignalsFromDB() {
+        try {
+          const resp = await jget(`${api}/m2/signals`);
+          renderSignals(resp);
+          writeLog({ signalsResp: resp });
+        } catch (e) {
+          writeLog({ signalsErr: e.message });
+        }
+      }
+
+      function renderSignals(resp) {
+        const body = $('#signalsBody');
+        body.innerHTML = '';
+
+        if (!resp || !resp.ok) {
+          body.innerHTML = `<tr><td colspan="5">No data / Error</td></tr>`;
+          return;
+        }
+
+        if (!resp.data || !resp.data.length) {
+          body.innerHTML = `<tr><td colspan="5">No RSI candidates yet</td></tr>`;
+          return;
+        }
+
+        resp.data.forEach(sig => {
+          const tr = document.createElement('tr');
+
+          // handle different shape
+          const rsi = Number(sig.rsi || 0).toFixed(2);
+          const inZone = sig.inEntryZone ? "YES ✅" : "no";
+          const pct = sig.changePct !== undefined
+            ? Number(sig.changePct).toFixed(2) + "%"
+            : "-";
+          const ltp = sig.ltp !== undefined
+            ? Number(sig.ltp).toFixed(2)
+            : "-";
+
+          tr.innerHTML = `
+        <td>${sig.symbol}</td>
+        <td>${rsi}</td>
+        <td>${inZone}</td>
+        <td>${pct}</td>
+        <td>${ltp}</td>
+      `;
+          body.appendChild(tr);
+        });
+      }
+
+
+      async function startEngine() {
+        $('#btnStart').disabled = true;
+        const resp = await jpost(`${api}/m1/start`);
+        writeLog({ startResp: resp });
+        $('#btnStart').disabled = false;
+        await loadStatus();
+        await loadMovers();
+      }
+
+      async function stopEngine() {
+        $('#btnStop').disabled = true;
+        const resp = await jpost(`${api}/m1/stop`);
+        writeLog({ stopResp: resp });
+        $('#btnStop').disabled = false;
+        await loadStatus();
+      }
+      async function loadTrades() {
+        try {
+          const resp = await jget(`${api}/trade/all`);
+          renderTrades(resp);
+          writeLog({ tradesResp: resp });
+        } catch (e) {
+          writeLog({ tradesErr: e.message });
+        }
+      }
+
+      function renderTrades(resp) {
+        const body = $('#tradesBody');
+        body.innerHTML = '';
+
+        if (!resp || !resp.ok) {
+          body.innerHTML = `<tr><td colspan="9">Error loading trades</td></tr>`;
+          return;
+        }
+
+        if (!resp.trades || !resp.trades.length) {
+          body.innerHTML = `<tr><td colspan="9">No trades yet</td></tr>`;
+          return;
+        }
+
+        resp.trades.forEach(tr => {
+          const isOpen = tr.status === "OPEN";
+          const pnlPct = tr.pnlPct != null ? tr.pnlPct.toFixed(2) + "%" : "-";
+          const exitPx = tr.exitPrice != null ? tr.exitPrice.toFixed(2) : "-";
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+        <td>${tr.symbol}</td>
+        <td>${tr.qty}</td>
+        <td>${tr.entryPrice.toFixed(2)}</td>
+        <td>${tr.targetPrice.toFixed(2)}</td>
+        <td>${tr.stopPrice.toFixed(2)}</td>
+        <td>${tr.status}</td>
+        <td>${exitPx}</td>
+        <td class="${tr.pnlPct > 0 ? 'up' : ''}">${pnlPct}</td>
+        <td>
+          ${isOpen
+              ? `<button class="btn small alt" data-tradeid="${tr._id}">Close</button>`
+              : `<span style="font-size:12px;color:var(--text-dim)">-</span>`
+            }
+        </td>
+      `;
+          body.appendChild(row);
+        });
+
+        // attach click for close buttons
+        body.querySelectorAll("button[data-tradeid]").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const id = btn.getAttribute("data-tradeid");
+            await closeTrade(id);
+            await loadTrades();
+          });
+        });
+      }
+
+      async function closeTrade(id) {
+        try {
+          const resp = await jpost(`${api}/trade/close/${id}`);
+          writeLog({ manualClose: resp });
+          alert(resp.ok ? "Trade closed" : "Close failed");
+        } catch (e) {
+          writeLog({ manualCloseErr: e.message });
+        }
+      }
+      async function loadDailyReport() {
+        try {
+          const rep = await jget(`${api}/report/daily`);
+          writeLog({ dailyReport: rep });
+          renderDailyReport(rep);
+        } catch (e) {
+          writeLog({ reportErr: e.message });
+        }
+      }
+
+      function renderDailyReport(rep) {
+        if (!rep || !rep.ok) {
+          $('#repClosed').textContent = '--';
+          $('#repWL').textContent = '--';
+          $('#repPnL').textContent = '--';
+          $('#repAvg').textContent = '--';
+          $('#repBest').textContent = '--';
+          $('#repWorst').textContent = '--';
+          return;
+        }
+
+        const s = rep.summary;
+        $('#repClosed').textContent = s.closedTrades ?? 0;
+        $('#repWL').textContent = (s.wins ?? 0) + " / " + (s.losses ?? 0);
+
+        // रंगत: pnl positive हो तो हरा
+        const pnl = (s.grossPnLAbs ?? 0).toFixed(2);
+        $('#repPnL').textContent = pnl;
+        $('#repPnL').className = 'stat-value ' + ((s.grossPnLAbs ?? 0) >= 0 ? 'ok' : 'notok');
+
+        $('#repAvg').textContent = (s.avgPnLAbs ?? 0).toFixed(2);
+
+        if (s.bestTrade) {
+          $('#repBest').textContent =
+            s.bestTrade.symbol + " (" + (s.bestTrade.pnlAbs ?? 0).toFixed(2) + ")";
+        } else {
+          $('#repBest').textContent = "--";
+        }
+
+        if (s.worstTrade) {
+          $('#repWorst').textContent =
+            s.worstTrade.symbol + " (" + (s.worstTrade.pnlAbs ?? 0).toFixed(2) + ")";
+        } else {
+          $('#repWorst').textContent = "--";
+        }
+      }
+
+
+
+      $('#btnStart').addEventListener('click', startEngine);
+      $('#btnStop').addEventListener('click', stopEngine);
+      $('#btnRefresh').addEventListener('click', async () => {
+        await loadStatus();
+        await loadMovers();
       });
+      $('#btnLoadMovers').addEventListener('click', loadMovers);
+      $('#btnRunScan').addEventListener('click', runScanNow);
+      $('#btnLoadSignals').addEventListener('click', loadSignalsFromDB);
+      $('#btnReloadTrades').addEventListener('click', loadTrades);
+      $('#btnLoadReport').addEventListener('click', loadDailyReport);
 
-      writeLog({moversSample: mv.data.slice(0,3)});
-    } catch(e){
-      writeLog({moversFetchError:e.message});
-    }
-  }
 
-  async function startEngine(){
-    $('#btnStart').disabled = true;
-    const resp = await jpost(`${api}/m1/start`);
-    writeLog({startResp: resp});
-    $('#btnStart').disabled = false;
-    await loadStatus();
-    await loadMovers();
-  }
 
-  async function stopEngine(){
-    $('#btnStop').disabled = true;
-    const resp = await jpost(`${api}/m1/stop`);
-    writeLog({stopResp: resp});
-    $('#btnStop').disabled = false;
-    await loadStatus();
-  }
 
-  $('#btnStart').addEventListener('click', startEngine);
-  $('#btnStop').addEventListener('click', stopEngine);
-  $('#btnRefresh').addEventListener('click', async ()=>{
-    await loadStatus();
-    await loadMovers();
-  });
-  $('#btnLoadMovers').addEventListener('click', loadMovers);
+      // auto refresh every 20 seconds for movers (while engine running)
+      setInterval(async () => {
+        const st = await jget(`${api}/m1/status`);
+        if (st.engineOn) {
+          await loadMovers();
+          await loadStatus();
+        }
+      }, 20000);
 
-  // auto refresh every 20 seconds for movers (while engine running)
-  setInterval(async ()=>{
-    const st = await jget(`${api}/m1/status`);
-    if(st.engineOn){
-      await loadMovers();
-      await loadStatus();
-    }
-  }, 20000);
+      setInterval(async () => {
+        const st = await jget(`${api}/m1/status`);
+        if (st.engineOn) {
+          await runScanNow();
+        }
+      }, 60000);
+      setInterval(async () => {
+        await loadTrades();
+      }, 30000); // हर 30 सेकंड में trades refresh
+      setInterval(async () => {
+        await loadDailyReport();
+      }, 60000);
 
-  // initial load
-  loadStatus();
-  loadMovers();
-})();
-</script>
+
+      // initial load
+      loadStatus();
+      loadMovers();
+      loadSignalsFromDB();
+      loadTrades();
+      loadDailyReport();
+    })();
+  </script>
 
 </body>
+
 </html>
