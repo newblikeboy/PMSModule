@@ -1,5 +1,5 @@
 (function(){
-  const $ = sel => document.querySelector(sel);
+  const $  = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
 
   // ---- Auth guard ----
@@ -9,6 +9,7 @@
     return;
   }
 
+  // attach Authorization header for admin-only backend routes
   function authHeaders(json=false){
     const h = { "Authorization": "Bearer " + token };
     if (json) h["Content-Type"] = "application/json";
@@ -200,7 +201,7 @@
 
   // =========================================================
   // LOAD: Users (/admin/users)
-  // and attach actions
+  // attach actions
   // =========================================================
   async function loadUsers(){
     const resp = await jgetAuth("/admin/users");
@@ -294,7 +295,7 @@
     body.querySelectorAll("button[data-action]").forEach(btn=>{
       btn.addEventListener("click", async ()=>{
         const action = btn.getAttribute("data-action");
-        const uid = btn.getAttribute("data-id");
+        const uid    = btn.getAttribute("data-id");
         if (!uid) return;
 
         if (action === "makePaid") {
@@ -423,15 +424,151 @@
 
 
   // =========================================================
+  // FYERS BROKER CONNECT (System Control tab)
+  // =========================================================
+
+  async function fyersStatus() {
+    const r = await fetch("/fyers/status", {
+      headers: authHeaders()
+    });
+    if (!r.ok) {
+      return { ok: false, error: "status fetch failed" };
+    }
+    return r.json();
+  }
+
+  async function fyersGetLoginUrl() {
+    const r = await fetch("/fyers/login-url", {
+      headers: authHeaders()
+    });
+    if (!r.ok) {
+      return { ok: false, error: "login-url failed" };
+    }
+    return r.json();
+  }
+
+  async function fyersExchangeCode(authCode) {
+    const r = await fetch("/fyers/exchange", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({ auth_code: authCode })
+    });
+    if (!r.ok) {
+      return { ok: false, error: "exchange failed" };
+    }
+    return r.json();
+  }
+
+  async function renderFyersStatus() {
+    const statusTextEl = document.getElementById("fyersStatusText");
+    const metaEl       = document.getElementById("fyersTokenMeta");
+
+    if (!statusTextEl || !metaEl) return;
+
+    statusTextEl.textContent = "Checking…";
+    statusTextEl.classList.remove("broker-status-on","broker-status-off");
+    statusTextEl.classList.add("broker-status-off");
+
+    const resp = await fyersStatus();
+    if (!resp.ok) {
+      statusTextEl.textContent = "ERROR";
+      metaEl.textContent = resp.error || "Cannot fetch broker status";
+      return;
+    }
+
+    if (resp.hasRefresh) {
+      statusTextEl.textContent = "CONNECTED";
+      statusTextEl.classList.remove("broker-status-off");
+      statusTextEl.classList.add("broker-status-on");
+
+      const createdAt = resp.tokenCreatedAt
+        ? new Date(resp.tokenCreatedAt).toLocaleString()
+        : "--";
+
+      metaEl.textContent = `Access: ${resp.hasAccess ? "OK" : "No"} | Since: ${createdAt}`;
+    } else {
+      statusTextEl.textContent = "NOT LINKED";
+      statusTextEl.classList.remove("broker-status-on");
+      statusTextEl.classList.add("broker-status-off");
+      metaEl.textContent = "No refresh_token stored yet. Complete Step 1 & Step 2.";
+    }
+  }
+
+  function wireFyersUI() {
+    const btnStatus   = document.getElementById("fyersStatusReloadBtn");
+    const btnGetUrl   = document.getElementById("btnGetLoginUrl");
+    const btnOpenUrl  = document.getElementById("btnOpenLoginUrl");
+    const btnExchange = document.getElementById("btnExchangeCode");
+
+    const urlInput   = document.getElementById("fyersLoginUrl");
+    const codeInput  = document.getElementById("fyersAuthCodeInput");
+    const resultBox  = document.getElementById("fyersExchangeResult");
+
+    if (btnStatus) {
+      btnStatus.addEventListener("click", async () => {
+        await renderFyersStatus();
+      });
+    }
+
+    if (btnGetUrl && urlInput) {
+      btnGetUrl.addEventListener("click", async () => {
+        urlInput.value = "Loading...";
+        const data = await fyersGetLoginUrl();
+        if (!data.ok) {
+          urlInput.value = "ERROR";
+          return;
+        }
+        urlInput.value = data.url || "";
+      });
+    }
+
+    if (btnOpenUrl && urlInput) {
+      btnOpenUrl.addEventListener("click", () => {
+        if (!urlInput.value) {
+          alert("Generate URL first");
+          return;
+        }
+        window.open(urlInput.value, "_blank");
+      });
+    }
+
+    if (btnExchange && codeInput && resultBox) {
+      btnExchange.addEventListener("click", async () => {
+        const code = codeInput.value.trim();
+        if (!code) {
+          alert("Paste auth_code first");
+          return;
+        }
+        resultBox.style.color = "#4e6bff";
+        resultBox.textContent = "Exchanging...";
+
+        const data = await fyersExchangeCode(code);
+
+        if (!data.ok) {
+          resultBox.style.color = "#ff5f5f";
+          resultBox.textContent = "Failed: " + (data.error || "unknown error");
+          return;
+        }
+
+        resultBox.style.color = "#13c27a";
+        resultBox.textContent = "Success. Tokens saved.";
+
+        await renderFyersStatus();
+      });
+    }
+  }
+
+
+  // =========================================================
   // REFRESH BUTTONS per-section
   // =========================================================
   $$(".admin-refresh-btn").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
       const type = btn.getAttribute("data-reload");
-      if (type === "signals") await loadSignals();
-      else if (type === "trades") await loadTrades();
-      else if (type === "users") await loadUsers();
-      else if (type === "system") await loadSystem();
+      if (type === "signals")      await loadSignals();
+      else if (type === "trades")  await loadTrades();
+      else if (type === "users")   await loadUsers();
+      else if (type === "system")  await loadSystem();
       else {
         await loadOverviewKPIs();
         await loadSignals();
@@ -444,24 +581,26 @@
 
 
   // =========================================================
-  // INITIAL LOAD
+  // INITIAL LOAD + POLLING + FYERS INIT
   // =========================================================
   async function initialLoad(){
-    // Load everything once
     await loadOverviewKPIs();
     await loadSignals();
     await loadTrades();
     await loadUsers();
     await loadSystem();
+
+    wireFyersUI();
+    await renderFyersStatus();
   }
 
   initialLoad();
 
-  // optional polling for live data (every 30s)
+  // Poll live data every 30s (overview/signals/trades only)
   setInterval(()=>{
     loadOverviewKPIs();
     loadSignals();
     loadTrades();
   }, 30000);
 
-})();
+})(); // END IIFE

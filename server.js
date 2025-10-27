@@ -13,6 +13,7 @@ const reportRoutes = require("./routes/report.routes");
 const authRoutes = require("./routes/auth.routes");
 const userRoutes = require("./routes/user.routes");
 const adminRoutes = require("./routes/admin.routes");
+const fyersRoutes = require("./routes/fyers.routes");
 
 const app = express();
 app.use(express.json());
@@ -25,7 +26,8 @@ connectDB();
 app.use(express.static(path.join(__dirname, "public")));
 
 // API routes
-
+app.use(express.json()); // <-- CRITICAL
+app.use(express.urlencoded({ extended: true })); // <-- good to have
 app.use("/m1", m1Routes);
 app.use("/m2", m2Routes);
 app.use("/trade", tradeRoutes);
@@ -33,6 +35,7 @@ app.use("/report", reportRoutes);
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 app.use("/admin", adminRoutes);
+app.use("/fyers", fyersRoutes);
 
 
 // error handler

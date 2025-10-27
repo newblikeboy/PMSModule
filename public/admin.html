@@ -183,41 +183,110 @@
 
     <!-- ============ SYSTEM CONTROL TAB ============ -->
     <section class="admin-tab-section hidden" id="systemTab">
-      <div class="admin-users-wrap">
-        <div class="admin-users-head">
-          <div>
-            <div class="admin-section-title">System Control</div>
-            <div class="admin-section-sub">
-              Kill switches and global config
-            </div>
-          </div>
-
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" data-reload="system">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Current</th>
-                <th>Description</th>
-                <th>Toggle</th>
-              </tr>
-            </thead>
-            <tbody id="adminSystemTbody">
-              <tr><td colspan="4" style="text-align:center;padding:20px;">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="admin-section-sub" style="margin-top:16px;">
-          These switches are global. Use carefully.
+  <div class="admin-users-wrap">
+    <div class="admin-users-head">
+      <div>
+        <div class="admin-section-title">System Control</div>
+        <div class="admin-section-sub">
+          Kill switches and global config
         </div>
       </div>
-    </section>
+
+      <div class="admin-refresh-block">
+        <button class="admin-refresh-btn" data-reload="system">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Setting</th>
+            <th>Current</th>
+            <th>Description</th>
+            <th>Toggle</th>
+          </tr>
+        </thead>
+        <tbody id="adminSystemTbody">
+          <tr><td colspan="4" style="text-align:center;padding:20px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="admin-section-sub" style="margin-top:16px;">
+      These switches are global. Use carefully.
+    </div>
+  </div>
+
+  <!-- 🔐 Fyers Broker Auth Card -->
+  <div class="admin-broker-card">
+    <div class="admin-broker-head">
+      <div>
+        <div class="admin-section-title">Fyers Broker Connection</div>
+        <div class="admin-section-sub">
+          Connect once with your Fyers account. After this, tokens auto-refresh and engine can stream live data.
+        </div>
+      </div>
+      <div class="admin-refresh-block">
+        <button class="admin-refresh-btn" id="fyersStatusReloadBtn">↻ Status</button>
+      </div>
+    </div>
+
+    <div class="admin-broker-body">
+
+      <!-- Status Row -->
+      <div class="broker-status-row">
+        <div>
+          <div class="note-small">Connection Status</div>
+          <div id="fyersStatusText" class="broker-status-pill broker-status-off">Checking…</div>
+        </div>
+        <div class="note-small" id="fyersTokenMeta"></div>
+      </div>
+
+      <hr class="broker-divider"/>
+
+      <!-- Step 1: Get Login URL -->
+      <div class="broker-step">
+        <div class="broker-step-left">
+          <div class="broker-step-title">Step 1. Generate Login URL</div>
+          <div class="note-small">
+            Click “Get URL”, open it, login to Fyers, and you'll get <b>auth_code</b> in redirect.
+          </div>
+        </div>
+        <div class="broker-step-right">
+          <button class="admin-mini-btn" id="btnGetLoginUrl">Get URL</button>
+        </div>
+      </div>
+
+      <div class="broker-url-row">
+        <input id="fyersLoginUrl" class="broker-url-input" type="text" placeholder="login url will appear here" readonly />
+        <button class="admin-mini-btn" id="btnOpenLoginUrl">Open</button>
+      </div>
+
+      <hr class="broker-divider"/>
+
+      <!-- Step 2: Exchange auth_code -->
+      <div class="broker-step">
+        <div class="broker-step-left">
+          <div class="broker-step-title">Step 2. Paste auth_code and Exchange</div>
+          <div class="note-small">
+            After login, copy auth_code from redirect URL and paste it here.
+          </div>
+        </div>
+        <div class="broker-step-right"></div>
+      </div>
+
+      <div class="broker-url-row">
+        <input id="fyersAuthCodeInput" class="broker-url-input" type="text" placeholder="paste auth_code from redirect here" />
+        <button class="admin-mini-btn pay" id="btnExchangeCode">Exchange</button>
+      </div>
+
+      <div class="note-small" id="fyersExchangeResult" style="margin-top:8px;color:#4e6bff;"></div>
+
+    </div>
+  </div>
+</section>
+
 
   </main>
 

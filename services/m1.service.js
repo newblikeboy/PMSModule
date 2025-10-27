@@ -22,44 +22,39 @@ async function loadUniverse() {
 }
 
 async function fetchPrevClose(symbol) {
-  const to = DateTime.now().setZone(IST).toISODate();
-  const from = DateTime.now().setZone(IST).minus({ days: 7 }).toISODate();
-  const resp = await fy.getHistory({
-    symbol,
-    resolution: "D",
-    range_from: from,
-    range_to: to,
-  });
-  const candles = resp?.candles || [];
-  if (candles.length < 1) throw new Error("no data");
-  const prev = candles[candles.length - 2] || candles[candles.length - 1];
-  return Number(prev[4]);
+  try {
+    const to = DateTime.now().setZone(IST).toISODate();
+    const from = DateTime.now().setZone(IST).minus({ days: 7 }).toISODate();
+    const resp = await fy.getHistory({ symbol, resolution: "D", range_from: from, range_to: to });
+    const candles = resp?.candles || [];
+    if (candles.length < 1) throw new Error("no data");
+    const prev = candles[candles.length - 2] || candles[candles.length - 1];
+    return Number(prev[4]);
+  } catch (e) {
+    lastError = e.message;
+    return null;
+  }
 }
 
 async function warmupPrevCloses(symbols) {
   prevCloseMap.clear();
   for (const s of symbols) {
-    try {
-      const pc = await fetchPrevClose(s);
-      prevCloseMap.set(s, pc);
-    } catch (e) {
-      lastError = e.message;
-    }
+    const pc = await fetchPrevClose(s);
+    if (pc) prevCloseMap.set(s, pc);
   }
 }
 
 async function startSocket(symbols) {
   const token = await getSocketToken();
-  if (socket) {
-    try {
-      socket.close();
-    } catch {}
-  }
+  if (socket) try { socket.close(); } catch {}
   socket = new fyersDataSocket(token, "./");
+
   socket.on("connect", () => {
+    console.log("[Socket] Connected to Fyers Stream");
     socket.subscribe(symbols, "lite");
     socket.autoreconnect(10);
   });
+
   socket.on("message", (msg) => {
     const data = Array.isArray(msg) ? msg : msg?.d || msg?.data || [msg];
     (Array.isArray(data) ? data : [data]).forEach((t) => {
@@ -69,6 +64,12 @@ async function startSocket(symbols) {
       ltpMap.set(sym, Number(ltp));
     });
   });
+
+  socket.on("error", (err) => {
+    lastError = err.message;
+    console.error("[Socket Error]", err);
+  });
+
   socket.connect();
 }
 
@@ -79,12 +80,9 @@ function computeMovers(threshold = 5) {
     const ltp = ltpMap.get(sym);
     if (!pc || !ltp) continue;
     const pct = ((ltp - pc) / pc) * 100;
-    if (pct >= threshold) {
-      arr.push({ symbol: sym, prevClose: pc, ltp, changePct: pct });
-    }
+    if (pct >= threshold) arr.push({ symbol: sym, prevClose: pc, ltp, changePct: pct });
   }
-  arr.sort((a, b) => b.changePct - a.changePct);
-  return arr;
+  return arr.sort((a, b) => b.changePct - a.changePct);
 }
 
 async function startEngine() {
@@ -95,11 +93,11 @@ async function startEngine() {
   await startSocket(uni);
   engineOn = true;
 
-  // Auto stop at cutoff
-  const remainMs =
-    Math.max(0, (todayCutoffTs() - Math.floor(DateTime.now().setZone(IST).toSeconds())) * 1000) + 5000;
+  const remainMs = Math.max(
+    0,
+    (todayCutoffTs() - Math.floor(DateTime.now().setZone(IST).toSeconds())) * 1000
+  ) + 5000;
   setTimeout(stopEngine, remainMs);
-
   return { ok: true, msg: `started ${uni.length} symbols` };
 }
 
@@ -112,7 +110,6 @@ async function stopEngine() {
 async function getMovers() {
   if (!engineOn) return { ok: false, data: [] };
   const movers = computeMovers();
-  // Save to DB
   for (const m of movers) {
     await M1Mover.findOneAndUpdate(
       { symbol: m.symbol },
