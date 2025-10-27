@@ -9,7 +9,8 @@ const adminRequired = require("../middlewares/adminRequired");
 const {
   getLoginUrl,
   exchangeAuthCode,
-  _debugDump
+  forceRefreshNow,
+  getAuthMeta
 } = require("../services/fyersAuth");
 
 // DEBUG: add this log at require-time
@@ -26,20 +27,31 @@ router.get("/login-url", adminRequired, (req, res) => {
   }
 });
 
+// GET /fyers/status
 router.get("/status", adminRequired, (req, res) => {
   try {
-    console.log("[/fyers/status] hit");
-    const dump = _debugDump();
+    const meta = getAuthMeta();
     return res.json({
       ok: true,
-      hasAccess: !!dump.access_token,
-      hasRefresh: !!dump.refresh_token,
-      tokenCreatedAt: dump.access_created_at || null,
-      expiresInSec: dump.access_expires_in || null
+      ...meta
     });
   } catch (err) {
     console.error("[/fyers/status] ERROR", err);
     return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /fyers/force-refresh  (admin-requested refresh)
+router.post("/force-refresh", adminRequired, async (req, res) => {
+  try {
+    const out = await forceRefreshNow();
+    return res.json({ ok: true, tokens: out });
+  } catch (err) {
+    console.error("ERROR in /fyers/force-refresh:", err);
+    return res.status(500).json({
+      ok: false,
+      error: err.message || "Could not refresh"
+    });
   }
 });
 
@@ -69,6 +81,8 @@ router.post("/exchange", adminRequired, async (req, res) => {
       .status(500)
       .json({ ok: false, error: err.message || "internal error" });
   }
+
+  
 });
 
 module.exports = router;

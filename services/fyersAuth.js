@@ -6,7 +6,7 @@ const path = require("path");
 const axios = require("axios");
 
 // Where we persist tokens so refresh works forever
-const DATA_DIR   = path.join(__dirname, "../data");
+const DATA_DIR = path.join(__dirname, "../data");
 const TOKENS_FILE = path.join(DATA_DIR, "./tokens_fyers.json");
 
 // Make sure /data exists so writeFileSync doesn't crash
@@ -37,7 +37,9 @@ function loadTokensFromDisk() {
     access_token: null,
     refresh_token: null,
     access_created_at: 0,
-    access_expires_in: 0
+    access_expires_in: 0,
+    last_auto_refresh_at: 0,
+    last_manual_refresh_at: 0
   };
 }
 
@@ -83,7 +85,7 @@ const crypto = require("crypto");
  * using /validate-authcode as per Fyers v3 docs.
  */
 async function exchangeAuthCode(authCode) {
-  const appId  = process.env.FYERS_APP_ID;
+  const appId = process.env.FYERS_APP_ID;
   const secret = process.env.FYERS_APP_SECRET;
 
   if (!appId || !secret) {
@@ -128,12 +130,15 @@ async function exchangeAuthCode(authCode) {
       throw new Error("Broker did not return access_token");
     }
 
+     const nowTs = Date.now();
+
     // Save in-memory
-    state.access_token      = data.access_token;
-    state.refresh_token     = data.refresh_token || state.refresh_token || null;
-    state.access_created_at = Date.now();
-    // Fyers doesn't always return expires_in here. We'll assume 3600s default.
-    state.access_expires_in = data.expires_in || state.access_expires_in || 3600;
+    state.access_token          = data.access_token;
+    state.refresh_token         = data.refresh_token || state.refresh_token || null;
+    state.access_created_at     = nowTs;
+    state.access_expires_in     = data.expires_in || state.access_expires_in || 3600;
+    state.last_manual_refresh_at = nowTs;  // first time we got tokens = manual
+    // last_auto_refresh_at stays as-is
 
     saveTokensToDisk(state);
 
@@ -168,18 +173,16 @@ async function exchangeAuthCode(authCode) {
   }
 }
 
+//Refresh Token Code
 
-/**
- * refreshAccessToken()
- * Called automatically when access token is expired.
- */
+
 async function refreshAccessToken() {
-  const appId  = process.env.FYERS_APP_ID;
+  const appId = process.env.FYERS_APP_ID;
   const secret = process.env.FYERS_APP_SECRET;
+  const pinId = process.env.FYERS_PIN
 
   if (!appId || !secret) {
-    const msg = "[fyersAuth] Missing FYERS_APP_ID / FYERS_APP_SECRET for refresh";
-    console.error(msg);
+    console.error("[fyersAuth] Missing FYERS_APP_ID / FYERS_APP_SECRET for refresh");
     throw new Error("Server env incomplete for refresh.");
   }
 
@@ -188,15 +191,21 @@ async function refreshAccessToken() {
     throw new Error("No refresh_token saved");
   }
 
-  const appIdHash = Buffer.from(`${appId}:${secret}`).toString("base64");
+  // Fyers doc: appIdHash = sha256(appId + appSecret) as hex
+  const appIdHash = crypto
+    .createHash("sha256")
+    .update(`${appId}:${secret}`)
+    .digest("hex");
 
   try {
+    // Hitting the Fyers refresh endpoint.
     const resp = await axios.post(
-      "https://api-t1.fyers.in/api/v3/token",
+      "https://api-t1.fyers.in/api/v3/validate-refresh-token",
       {
         grant_type: "refresh_token",
         appIdHash: appIdHash,
-        refresh_token: state.refresh_token
+        refresh_token: state.refresh_token,
+        pin: pinId
       },
       {
         headers: {
@@ -207,28 +216,43 @@ async function refreshAccessToken() {
     );
 
     const data = resp.data || {};
+
+
     if (!data.access_token) {
       console.error("[fyersAuth] Unexpected refresh response:", data);
       throw new Error("Broker did not return access_token on refresh");
     }
 
-    state.access_token       = data.access_token;
-    state.refresh_token      = data.refresh_token || state.refresh_token;
-    state.access_created_at  = Date.now();
-    state.access_expires_in  = data.expires_in || 3600;
+    const nowTs = Date.now();
 
+    // Update in-memory state
+    state.access_token          = data.access_token;
+    state.refresh_token         = data.refresh_token || state.refresh_token;
+    state.access_created_at     = nowTs;
+    state.access_expires_in     = data.expires_in || state.access_expires_in || 3600;
+    state.last_auto_refresh_at  = nowTs;  // this refresh was automatic
+    // last_manual_refresh_at stays unchanged here
+
+    // Persist to disk so restart is still authenticated
     saveTokensToDisk(state);
 
     console.log("[fyersAuth] refreshAccessToken SUCCESS. New access_token saved.");
     return state.access_token;
   } catch (err) {
     if (err.response) {
-      console.error("[fyersAuth] refreshAccessToken Fyers error:", err.response.status, err.response.data);
+      console.error(
+        "[fyersAuth] refreshAccessToken Fyers error:",
+        err.response.status,
+        err.response.data
+      );
+
       throw new Error(
         "Refresh failed at broker: " +
-        (err.response.data && err.response.data.message
-          ? err.response.data.message
-          : `status ${err.response.status}`)
+        (
+          err.response.data && err.response.data.message
+            ? err.response.data.message
+            : `status ${err.response.status}`
+        )
       );
     } else {
       console.error("[fyersAuth] refreshAccessToken ERROR:", err.message);
@@ -236,6 +260,34 @@ async function refreshAccessToken() {
     }
   }
 }
+//Force REfresh Code 
+
+
+async function forceRefreshNow() {
+  // we basically reuse refreshAccessToken, but afterward tag it manual
+  const newToken = await refreshAccessToken();
+  const nowTs = Date.now();
+  state.last_manual_refresh_at = nowTs;
+  saveTokensToDisk(state);
+  return {
+    ok: true,
+    access_token: state.access_token,
+    refresh_token: state.refresh_token
+  };
+}
+
+function getAuthMeta() {
+  return {
+    hasAccess: !!state.access_token,
+    hasRefresh: !!state.refresh_token,
+    tokenCreatedAt: state.access_created_at || null,
+    expiresInSec: state.access_expires_in || null,
+    lastAutoRefreshAt: state.last_auto_refresh_at || null,
+    lastManualRefreshAt: state.last_manual_refresh_at || null
+  };
+}
+
+
 
 /**
  * isExpired()
@@ -276,6 +328,9 @@ module.exports = {
   exchangeAuthCode,
   getAccessToken,
   refreshAccessToken,
+  forceRefreshNow,
   getSocketToken,
+  getAuthMeta,
   _debugDump: () => state
 };
+

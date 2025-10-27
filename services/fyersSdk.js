@@ -6,7 +6,7 @@ const FYERS_BASE = "https://api-t1.fyers.in/api/v3";
 
 function toFyersSymbol(sym) {
   if (sym.startsWith("NSE:")) return sym;
-  return `NSE:${sym}-EQ`;
+  return `${sym}`;
 }
 
 async function fyersGet(path, params = {}) {

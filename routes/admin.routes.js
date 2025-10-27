@@ -3,6 +3,13 @@ const router = express.Router();
 const adminRequired = require("../middlewares/adminRequired");
 const adminCtrl = require("../controllers/admin.controller");
 
+const {
+  getEngineStatus,
+  startScanEngine,
+  stopScanEngine
+} = require("../controllers/engine.controller");
+
+
 // overview
 router.get("/overview", adminRequired, adminCtrl.getOverview);
 
@@ -38,5 +45,17 @@ router.post("/user/automation", adminRequired, adminCtrl.setUserAutomation);
 // system control
 router.get("/system", adminRequired, adminCtrl.getSystemSettings);
 router.post("/system", adminRequired, adminCtrl.updateSystemSetting);
+
+// Engine Control (M1 live scanner)
+router.get("/engine/status", adminRequired, getEngineStatus);
+
+router.post("/engine/start", adminRequired, async (req, res) => {
+  return startScanEngine(req, res);
+});
+
+router.post("/engine/stop", adminRequired, async (req, res) => {
+  return stopScanEngine(req, res);
+});
+
 
 module.exports = router;

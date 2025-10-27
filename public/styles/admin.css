@@ -82,6 +82,7 @@
   display:flex;
   flex-direction:column;
   justify-content:space-between;
+  margin-top: 32px;
 }
 .admin-card-label {
   font-size:13px;
@@ -425,3 +426,78 @@
   border-color: #4e6bff;
   box-shadow: 0 0 0 3px rgba(78,107,255,0.15);
 }
+.admin-engine-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.engine-status-line {
+  font-size: 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.engine-meta {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.engine-meta .label {
+  font-weight: 500;
+  color: #333;
+}
+
+.engine-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#engineStatusPill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #fff;
+}
+
+#engineStatusPill.pill-on {
+  background: #13c27a;
+}
+
+#engineStatusPill.pill-off {
+  background: #ff5f5f;
+}
+
+.broker-token-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.broker-token-row .label {
+  font-weight: 600;
+  color: #333;
+}
+
+.broker-token-row .value {
+  color: #444;
+  word-break: break-word;
+}
+
+.broker-token-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+

@@ -1,5 +1,5 @@
-(function(){
-  const $  = sel => document.querySelector(sel);
+(function () {
+  const $ = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
 
   // ---- Auth guard ----
@@ -10,26 +10,26 @@
   }
 
   // attach Authorization header for admin-only backend routes
-  function authHeaders(json=false){
+  function authHeaders(json = false) {
     const h = { "Authorization": "Bearer " + token };
     if (json) h["Content-Type"] = "application/json";
     return h;
   }
 
-  async function jgetAuth(url){
+  async function jgetAuth(url) {
     const r = await fetch(url, { headers: authHeaders() });
     if (r.status === 401 || r.status === 403) {
       alert("Not authorized. Admin only.");
       localStorage.removeItem("qp_token");
       window.location.href = "./admin-login.html";
-      return { ok:false, error:"unauthorized" };
+      return { ok: false, error: "unauthorized" };
     }
     return r.json();
   }
 
-  async function jpostAuth(url, body){
+  async function jpostAuth(url, body) {
     const r = await fetch(url, {
-      method:"POST",
+      method: "POST",
       headers: authHeaders(true),
       body: JSON.stringify(body || {})
     });
@@ -37,13 +37,13 @@
       alert("Not authorized. Admin only.");
       localStorage.removeItem("qp_token");
       window.location.href = "./admin-login.html";
-      return { ok:false, error:"unauthorized" };
+      return { ok: false, error: "unauthorized" };
     }
     return r.json();
   }
 
   // ---- Logout ----
-  $('#adminLogoutBtn')?.addEventListener("click", ()=>{
+  $('#adminLogoutBtn')?.addEventListener("click", () => {
     localStorage.removeItem("qp_token");
     window.location.href = "./admin-login.html";
   });
@@ -55,8 +55,8 @@
   // =========================================================
   // TAB SWITCHING
   // =========================================================
-  $$(".admin-tab-btn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
+  $$(".admin-tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
       const tabId = btn.getAttribute("data-tab");
 
       // set active state
@@ -64,7 +64,7 @@
       btn.classList.add("active");
 
       // show the tab section
-      $$(".admin-tab-section").forEach(sec=>{
+      $$(".admin-tab-section").forEach(sec => {
         if (sec.id === tabId) sec.classList.remove("hidden");
         else sec.classList.add("hidden");
       });
@@ -75,7 +75,7 @@
   // =========================================================
   // LOAD: Overview KPIs  (/admin/overview)
   // =========================================================
-  async function loadOverviewKPIs(){
+  async function loadOverviewKPIs() {
     const data = await jgetAuth("/admin/overview");
     if (!data || !data.ok) return;
 
@@ -96,7 +96,7 @@
     if ($('#ovBestTrade')) {
       if (sum.bestTrade) {
         $('#ovBestTrade').textContent =
-          `Best Trade: ${sum.bestTrade.symbol} (₹${Number(sum.bestTrade.pnlAbs||0).toFixed(2)})`;
+          `Best Trade: ${sum.bestTrade.symbol} (₹${Number(sum.bestTrade.pnlAbs || 0).toFixed(2)})`;
       } else {
         $('#ovBestTrade').textContent = "Best Trade: --";
       }
@@ -110,29 +110,29 @@
   // =========================================================
   // LOAD: Live Signals (/admin/signals)
   // =========================================================
-  async function loadSignals(){
+  async function loadSignals() {
     const resp = await jgetAuth("/admin/signals");
     const body = $('#adminSignalsTbody');
     if (!body) return;
 
     body.innerHTML = "";
 
-    if (!resp || !resp.ok){
+    if (!resp || !resp.ok) {
       body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;">No data / error</td></tr>`;
       return;
     }
 
     const actionable = (resp.data || []).filter(r => r.inEntryZone);
 
-    if (!actionable.length){
+    if (!actionable.length) {
       body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;">No active entries</td></tr>`;
       return;
     }
 
-    actionable.forEach(sig=>{
+    actionable.forEach(sig => {
       const entry = Number(sig.ltp || 0);
-      const target = entry ? (entry * (1 + 1.5/100)) : 0;
-      const stop   = entry ? (entry * (1 - 0.75/100)) : 0;
+      const target = entry ? (entry * (1 + 1.5 / 100)) : 0;
+      const stop = entry ? (entry * (1 - 0.75 / 100)) : 0;
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -157,25 +157,25 @@
   // =========================================================
   // LOAD: Trades (/admin/trades)
   // =========================================================
-  async function loadTrades(){
+  async function loadTrades() {
     const resp = await jgetAuth("/admin/trades");
     const body = $('#adminTradesTbody');
     if (!body) return;
 
     body.innerHTML = "";
 
-    if (!resp || !resp.ok){
+    if (!resp || !resp.ok) {
       body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">No data / error</td></tr>`;
       return;
     }
 
     const trades = resp.trades || [];
-    if (!trades.length){
+    if (!trades.length) {
       body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">No trades</td></tr>`;
       return;
     }
 
-    trades.forEach(t=>{
+    trades.forEach(t => {
       const tr = document.createElement("tr");
 
       const pnlDisplay = (t.status === "CLOSED")
@@ -203,19 +203,19 @@
   // LOAD: Users (/admin/users)
   // attach actions
   // =========================================================
-  async function loadUsers(){
+  async function loadUsers() {
     const resp = await jgetAuth("/admin/users");
     const body = $('#adminUsersTbody');
     if (!body) return;
 
     body.innerHTML = "";
 
-    if (!resp || !resp.ok || !Array.isArray(resp.users)){
+    if (!resp || !resp.ok || !Array.isArray(resp.users)) {
       body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">Error loading users</td></tr>`;
       return;
     }
 
-    resp.users.forEach(user=>{
+    resp.users.forEach(user => {
       const tr = document.createElement("tr");
 
       let planClass = "";
@@ -292,10 +292,10 @@
       body.appendChild(tr);
     });
 
-    body.querySelectorAll("button[data-action]").forEach(btn=>{
-      btn.addEventListener("click", async ()=>{
+    body.querySelectorAll("button[data-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
         const action = btn.getAttribute("data-action");
-        const uid    = btn.getAttribute("data-id");
+        const uid = btn.getAttribute("data-id");
         if (!uid) return;
 
         if (action === "makePaid") {
@@ -339,14 +339,14 @@
   // LOAD: System settings (/admin/system)
   // and allow toggles
   // =========================================================
-  async function loadSystem(){
+  async function loadSystem() {
     const resp = await jgetAuth("/admin/system");
     const body = $('#adminSystemTbody');
     if (!body) return;
 
     body.innerHTML = "";
 
-    if (!resp || !resp.ok || !resp.settings){
+    if (!resp || !resp.ok || !resp.settings) {
       body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;">Error loading system flags</td></tr>`;
       return;
     }
@@ -374,7 +374,7 @@
       }
     ];
 
-    rows.forEach(row=>{
+    rows.forEach(row => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>
@@ -395,7 +395,7 @@
           <button class="admin-mini-btn sys"
             data-action="toggleSystem"
             data-key="${row.key}"
-            data-val="${row.val ? "true":"false"}">
+            data-val="${row.val ? "true" : "false"}">
             ${row.val ? "Turn OFF" : "Turn ON"}
           </button>
         </td>
@@ -404,15 +404,15 @@
     });
 
     // action binding
-    body.querySelectorAll("button[data-action='toggleSystem']").forEach(btn=>{
-      btn.addEventListener("click", async ()=>{
+    body.querySelectorAll("button[data-action='toggleSystem']").forEach(btn => {
+      btn.addEventListener("click", async () => {
         const key = btn.getAttribute("data-key");
-        const current = btn.getAttribute("data-val")==="true";
+        const current = btn.getAttribute("data-val") === "true";
         const r = await jpostAuth("/admin/system", {
           key,
           value: !current
         });
-        if (!r.ok){
+        if (!r.ok) {
           alert(r.error || "Failed to update setting");
           return;
         }
@@ -448,31 +448,31 @@
   }
 
   async function fyersExchangeCode(authCode) {
-  const r = await fetch("/fyers/exchange", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(true)
-    },
-    body: JSON.stringify({ auth_code: authCode })
-  });
+    const r = await fetch("/fyers/exchange", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(true)
+      },
+      body: JSON.stringify({ auth_code: authCode })
+    });
 
-  if (!r.ok) {
-    return { ok: false, error: "exchange failed" };
+    if (!r.ok) {
+      return { ok: false, error: "exchange failed" };
+    }
+
+    return await r.json();
   }
-
-  return await r.json();
-}
 
 
   async function renderFyersStatus() {
     const statusTextEl = document.getElementById("fyersStatusText");
-    const metaEl       = document.getElementById("fyersTokenMeta");
+    const metaEl = document.getElementById("fyersTokenMeta");
 
     if (!statusTextEl || !metaEl) return;
 
     statusTextEl.textContent = "Checking…";
-    statusTextEl.classList.remove("broker-status-on","broker-status-off");
+    statusTextEl.classList.remove("broker-status-on", "broker-status-off");
     statusTextEl.classList.add("broker-status-off");
 
     const resp = await fyersStatus();
@@ -500,15 +500,232 @@
     }
   }
 
+  // ===== Engine (M1) Control Helpers =====
+
+  async function getEngineStatusWeb() {
+    const r = await fetch("/admin/engine/status", {
+      headers: authHeaders()
+    });
+    if (!r.ok) {
+      return { ok: false, error: "status fetch failed" };
+    }
+    return r.json();
+  }
+
+  async function startEngineWeb() {
+    const r = await fetch("/admin/engine/start", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({})
+    });
+    if (!r.ok) {
+      let e;
+      try { e = await r.json(); } catch { }
+      return { ok: false, error: e?.error || "start failed" };
+    }
+    return r.json();
+  }
+
+  async function stopEngineWeb() {
+    const r = await fetch("/admin/engine/stop", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({})
+    });
+    if (!r.ok) {
+      let e;
+      try { e = await r.json(); } catch { }
+      return { ok: false, error: e?.error || "stop failed" };
+    }
+    return r.json();
+  }
+
+  async function renderEngineStatus() {
+    const pillEl = document.getElementById("engineStatusPill");
+    const beforeEl = document.getElementById("engineBeforeCutoff");
+    const errEl = document.getElementById("engineLastError");
+
+    if (!pillEl || !beforeEl || !errEl) return;
+
+    // show loading state first
+    pillEl.textContent = "…";
+    pillEl.classList.remove("pill-on", "pill-off");
+    pillEl.classList.add("pill-off");
+    beforeEl.textContent = "--";
+    errEl.textContent = "--";
+
+    const resp = await getEngineStatusWeb();
+    if (!resp.ok) {
+      pillEl.textContent = "ERR";
+      pillEl.classList.remove("pill-on");
+      pillEl.classList.add("pill-off");
+      beforeEl.textContent = "-";
+      errEl.textContent = resp.error || "Unable to load";
+      return;
+    }
+
+    const s = resp.status || {};
+    // s = { engineOn, beforeCutoff, lastError }
+
+    if (s.engineOn) {
+      pillEl.textContent = "RUNNING";
+      pillEl.classList.remove("pill-off");
+      pillEl.classList.add("pill-on");
+    } else {
+      pillEl.textContent = "STOPPED";
+      pillEl.classList.remove("pill-on");
+      pillEl.classList.add("pill-off");
+    }
+
+    beforeEl.textContent = s.beforeCutoff ? "Yes" : "No";
+    errEl.textContent = s.lastError ? s.lastError : "None";
+  }
+
+  async function fyersStatus() {
+    const r = await fetch("/fyers/status", {
+      headers: authHeaders()
+    });
+    if (!r.ok) {
+      return { ok: false, error: "status fetch failed" };
+    }
+    return r.json(); // now includes hasAccess, tokenCreatedAt, etc.
+  }
+
+  async function fyersForceRefresh() {
+    const r = await fetch("/fyers/force-refresh", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({})
+    });
+    let payload;
+    try { payload = await r.json(); } catch (e) { payload = { ok: false, error: "invalid json" }; }
+
+    if (!r.ok) {
+      return { ok: false, error: payload.error || "force refresh failed" };
+    }
+
+    return payload; // { ok:true, tokens:{...} }
+  }
+
+
+  function tsOrDash(ts) {
+    if (!ts) return "--";
+    const d = new Date(ts);
+    return d.toLocaleString(); // IST visible in Codespaces? fine for now.
+  }
+
+  async function renderFyersTokenMeta() {
+    const data = await fyersStatus();
+
+    const elAccess = document.getElementById("fyersHasAccess");
+    const elRefresh = document.getElementById("fyersHasRefresh");
+    const elCreated = document.getElementById("fyersCreatedAt");
+    const elAuto = document.getElementById("fyersAutoRef");
+    const elManual = document.getElementById("fyersManualRef");
+    const elTTL = document.getElementById("fyersTTL");
+
+    // if UI block hasn't been added yet, just skip harmlessly
+    if (!elAccess) return;
+
+    if (!data.ok) {
+      elAccess.textContent = "ERR";
+      elRefresh.textContent = "ERR";
+      elCreated.textContent = data.error || "error";
+      elAuto.textContent = "--";
+      elManual.textContent = "--";
+      elTTL.textContent = "--";
+      return;
+    }
+
+    elAccess.textContent = data.hasAccess ? "Yes" : "No";
+    elRefresh.textContent = data.hasRefresh ? "Yes" : "No";
+    elCreated.textContent = tsOrDash(data.tokenCreatedAt);
+    elAuto.textContent = tsOrDash(data.lastAutoRefreshAt);
+    elManual.textContent = tsOrDash(data.lastManualRefreshAt);
+    elTTL.textContent = data.expiresInSec ?? "--";
+  }
+
+  function wireFyersTokenUI() {
+    const btnForce = document.getElementById("btnForceRefresh");
+    const resultBox = document.getElementById("forceRefreshResult");
+
+    const reload2 = document.getElementById("fyersStatusReloadBtn2"); // ⟳ button on that card
+
+    if (btnForce && resultBox) {
+      btnForce.addEventListener("click", async () => {
+        btnForce.disabled = true;
+        resultBox.style.color = "#4e6bff";
+        resultBox.textContent = "Refreshing...";
+        const out = await fyersForceRefresh();
+        if (!out.ok) {
+          resultBox.style.color = "#ff5f5f";
+          resultBox.textContent = "Failed: " + (out.error || "unknown");
+          btnForce.disabled = false;
+          return;
+        }
+        resultBox.style.color = "#13c27a";
+        resultBox.textContent = "Success. New access_token saved.";
+        btnForce.disabled = false;
+
+        // re-render token metadata
+        await renderFyersTokenMeta();
+        // also re-render main fyers status pill, if you want
+        await renderFyersStatus();
+      });
+    }
+
+    if (reload2) {
+      reload2.addEventListener("click", async () => {
+        await renderFyersTokenMeta();
+        await renderFyersStatus();
+      });
+    }
+  }
+
+
+  function wireEngineUI() {
+    const btnStart = document.getElementById("btnEngineStart");
+    const btnStop = document.getElementById("btnEngineStop");
+
+    if (btnStart) {
+      btnStart.addEventListener("click", async () => {
+        btnStart.disabled = true;
+        btnStart.textContent = "Starting...";
+        const r = await startEngineWeb();
+        if (!r.ok) {
+          alert("Start failed: " + (r.error || r.msg || "unknown"));
+        }
+        btnStart.disabled = false;
+        btnStart.textContent = "Start Engine";
+        await renderEngineStatus();
+      });
+    }
+
+    if (btnStop) {
+      btnStop.addEventListener("click", async () => {
+        btnStop.disabled = true;
+        btnStop.textContent = "Stopping...";
+        const r = await stopEngineWeb();
+        if (!r.ok) {
+          alert("Stop failed: " + (r.error || r.msg || "unknown"));
+        }
+        btnStop.disabled = false;
+        btnStop.textContent = "Stop Engine";
+        await renderEngineStatus();
+      });
+    }
+  }
+
+
   function wireFyersUI() {
-    const btnStatus   = document.getElementById("fyersStatusReloadBtn");
-    const btnGetUrl   = document.getElementById("btnGetLoginUrl");
-    const btnOpenUrl  = document.getElementById("btnOpenLoginUrl");
+    const btnStatus = document.getElementById("fyersStatusReloadBtn");
+    const btnGetUrl = document.getElementById("btnGetLoginUrl");
+    const btnOpenUrl = document.getElementById("btnOpenLoginUrl");
     const btnExchange = document.getElementById("btnExchangeCode");
 
-    const urlInput   = document.getElementById("fyersLoginUrl");
-    const codeInput  = document.getElementById("fyersAuthCodeInput");
-    const resultBox  = document.getElementById("fyersExchangeResult");
+    const urlInput = document.getElementById("fyersLoginUrl");
+    const codeInput = document.getElementById("fyersAuthCodeInput");
+    const resultBox = document.getElementById("fyersExchangeResult");
 
     if (btnStatus) {
       btnStatus.addEventListener("click", async () => {
@@ -568,45 +785,57 @@
   // =========================================================
   // REFRESH BUTTONS per-section
   // =========================================================
-  $$(".admin-refresh-btn").forEach(btn=>{
-    btn.addEventListener("click", async ()=>{
+  $$(".admin-refresh-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
       const type = btn.getAttribute("data-reload");
-      if (type === "signals")      await loadSignals();
-      else if (type === "trades")  await loadTrades();
-      else if (type === "users")   await loadUsers();
-      else if (type === "system")  await loadSystem();
+      if (type === "signals") await loadSignals();
+      else if (type === "trades") await loadTrades();
+      else if (type === "users") await loadUsers();
+      else if (type === "system") await loadSystem();
+      else if (type === "engine") await renderEngineStatus();
       else {
         await loadOverviewKPIs();
         await loadSignals();
         await loadTrades();
         await loadUsers();
         await loadSystem();
+        await renderEngineStatus();
       }
     });
   });
+
 
 
   // =========================================================
   // INITIAL LOAD + POLLING + FYERS INIT
   // =========================================================
   async function initialLoad(){
-    await loadOverviewKPIs();
-    await loadSignals();
-    await loadTrades();
-    await loadUsers();
-    await loadSystem();
+  await loadOverviewKPIs();
+  await loadSignals();
+  await loadTrades();
+  await loadUsers();
+  await loadSystem();
+  await renderEngineStatus();
 
-    wireFyersUI();
-    await renderFyersStatus();
-  }
+  wireFyersUI();          // existing broker connect UI (login-url + exchange)
+  await renderFyersStatus();   // status pill CONNECTED / NOT LINKED
 
-  initialLoad();
+  await renderFyersTokenMeta(); // <-- NEW metadata table
+  wireFyersTokenUI();           // <-- NEW force refresh button
 
-  // Poll live data every 30s (overview/signals/trades only)
-  setInterval(()=>{
-    loadOverviewKPIs();
-    loadSignals();
-    loadTrades();
-  }, 30000);
+  wireEngineUI();         // start/stop engine buttons
+}
+
+initialLoad();
+
+setInterval(()=>{
+  loadOverviewKPIs();
+  loadSignals();
+  loadTrades();
+  renderEngineStatus();
+  renderFyersTokenMeta();  // keep timestamps somewhat fresh
+}, 30000);
+
+
 
 })(); // END IIFE
