@@ -448,16 +448,22 @@
   }
 
   async function fyersExchangeCode(authCode) {
-    const r = await fetch("/fyers/exchange", {
-      method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({ auth_code: authCode })
-    });
-    if (!r.ok) {
-      return { ok: false, error: "exchange failed" };
-    }
-    return r.json();
+  const r = await fetch("/fyers/exchange", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(true)
+    },
+    body: JSON.stringify({ auth_code: authCode })
+  });
+
+  if (!r.ok) {
+    return { ok: false, error: "exchange failed" };
   }
+
+  return await r.json();
+}
+
 
   async function renderFyersStatus() {
     const statusTextEl = document.getElementById("fyersStatusText");
