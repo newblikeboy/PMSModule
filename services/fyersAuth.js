@@ -4,6 +4,9 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
+const dotenv = require("dotenv");
+
+dotenv.config();
 
 // Where we persist tokens so refresh works forever
 const DATA_DIR = path.join(__dirname, "../data");
