@@ -19,7 +19,6 @@
   "NSE:ADANIENT-EQ",
   "NSE:ASIANPAINT-EQ",
   "NSE:POWERGRID-EQ",
-  "NSE:BHARTIARTL-EQ",     // (duplicate in original list; check for unique entries)
   "NSE:HEROMOTOCO-EQ",
   "NSE:ONGC-EQ",
   "NSE:NTPC-EQ",

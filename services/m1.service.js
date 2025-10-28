@@ -1,6 +1,6 @@
 "use strict";
 
-const fs = require("fs");
+const fs = require("fs").promises;
 const path = require("path");
 const { DateTime } = require("luxon");
 const { fyersDataSocket } = require("fyers-api-v3");
@@ -29,27 +29,63 @@ let rotationIntervalHandle = null;
 let heartbeatIntervalHandle = null;
 let autoStopTimeoutHandle = null;
 
+// ---------------------------
+// Optimization / tuning
+// ---------------------------
+const PREV_CLOSE_CONCURRENCY = 10; // number of parallel history requests
+const DB_UPSERT_CONCURRENCY = 10; // parallel savers for movers
+
+// ---------------------------------
+// small generic concurrency pool
+// ---------------------------------
+async function asyncPool(items, workerFn, concurrency = 5) {
+  const results = [];
+  const executing = new Set();
+
+  for (const item of items) {
+    const p = (async () => workerFn(item))();
+    results.push(p);
+    executing.add(p);
+
+    const cleanUp = () => executing.delete(p);
+    p.then(cleanUp, cleanUp);
+
+    if (executing.size >= concurrency) {
+      // wait for any to finish
+      await Promise.race(executing);
+    }
+  }
+
+  return Promise.all(results);
+}
+
 // -----------------------------------------------------
-// STEP 1. LOAD UNIVERSE
+// STEP 1. LOAD UNIVERSE (async, non-blocking)
 // -----------------------------------------------------
 async function loadUniverse() {
   try {
     const p = path.join(__dirname, "../nse_universe.json");
-    const arr = JSON.parse(fs.readFileSync(p, "utf8"));
+    const raw = await fs.readFile(p, "utf8");
+    const arr = JSON.parse(raw || "[]");
 
+    const seen = new Set();
     const clean = [];
-    for (const raw of arr) {
-      if (!raw) continue;
-      const s = String(raw).trim();
+
+    for (const rawItem of arr) {
+      if (!rawItem && rawItem !== 0) continue;
+      const s = String(rawItem).trim();
       if (!s) continue;
+
       const full = fy.toFyersSymbol ? fy.toFyersSymbol(s) : (s.startsWith("NSE:") ? s : `NSE:${s}-EQ`);
-      if (full && !clean.includes(full)) {
+      if (full && !seen.has(full)) {
+        seen.add(full);
         clean.push(full);
       }
     }
+
     return clean;
   } catch (err) {
-    lastError = "[loadUniverse] " + err.message;
+    lastError = "[loadUniverse] " + (err && err.message ? err.message : String(err));
     console.error(lastError);
     return [];
   }
@@ -76,6 +112,7 @@ async function fetchPrevClose(symbolFyersFormat) {
       throw new Error("no historical candles");
     }
 
+    // prefer the day-before-last; fallback to last
     const prev = candles[candles.length - 2] || candles[candles.length - 1];
     const prevClose = Number(prev[4]);
 
@@ -85,8 +122,9 @@ async function fetchPrevClose(symbolFyersFormat) {
 
     return prevClose;
   } catch (err) {
-    console.warn("[fetchPrevClose] Fail for", symbolFyersFormat, err.message);
-    lastError = err.message;
+    // keep the symbol's failure isolated
+    console.warn("[fetchPrevClose] Fail for", symbolFyersFormat, err?.message || err);
+    lastError = err?.message || String(err);
     return null;
   }
 }
@@ -95,12 +133,20 @@ async function warmupPrevCloses(symbols) {
   prevCloseMap.clear();
   const results = [];
 
-  for (const sym of symbols) {
+  // worker to fetch and store
+  async function worker(sym) {
     const pc = await fetchPrevClose(sym);
-    if (pc != null) {
+    if (pc != null) { // explicit null check (allows 0)
       prevCloseMap.set(sym, pc);
-      results.push({ symbol: sym, prevClose: pc });
+      return { symbol: sym, prevClose: pc };
     }
+    return null;
+  }
+
+  const fetched = await asyncPool(symbols, worker, PREV_CLOSE_CONCURRENCY);
+
+  for (const r of fetched) {
+    if (r) results.push(r);
   }
 
   const loadedCount = prevCloseMap.size;
@@ -131,7 +177,10 @@ async function ensureSocketConnected() {
     console.log("[Socket] Connected to Fyers Stream");
     lastHeartbeatTs = Date.now();
     subscribeCurrentBatch();
-    socket.autoreconnect(10);
+    // attempt reconnection strategy provided by sdk (if available)
+    if (typeof socket.autoreconnect === "function") {
+      try { socket.autoreconnect(10); } catch (e) {}
+    }
   });
 
   socket.on("message", (msg) => {
@@ -139,9 +188,9 @@ async function ensureSocketConnected() {
     const arr = Array.isArray(data) ? data : [data];
 
     for (const t of arr) {
-      const sym = t.symbol || t.s;
-      const ltp = t.ltp || t.c || t.price;
-      if (!sym || ltp == null) continue;
+      const sym = t?.symbol || t?.s;
+      const ltp = (t && (t.ltp ?? t.c ?? t.price));
+      if (!sym || ltp == null) continue; // allow ltp = 0
       ltpMap.set(sym, Number(ltp));
     }
 
@@ -149,7 +198,7 @@ async function ensureSocketConnected() {
   });
 
   socket.on("error", (err) => {
-    lastError = err.message;
+    lastError = err?.message || String(err);
     console.error("[Socket Error]", err);
   });
 
@@ -166,15 +215,19 @@ function subscribeCurrentBatch() {
   if (!universeSymbols.length) return;
 
   const start = currentBatchIndex * BATCH_SIZE;
-  const end = start + BATCH_SIZE;
+  const end = Math.min(start + BATCH_SIZE, universeSymbols.length);
   const batch = universeSymbols.slice(start, end);
 
   if (!batch.length) return;
 
   console.log(`[Socket] Subscribing batch ${currentBatchIndex} (${batch.length} symbols)`);
-  socket.subscribe(batch, "lite");
-
-  lastSubscriptionRotateTs = Date.now();
+  try {
+    socket.subscribe(batch, "lite");
+    lastSubscriptionRotateTs = Date.now();
+  } catch (err) {
+    lastError = err?.message || String(err);
+    console.error("[subscribeCurrentBatch] subscribe error", err);
+  }
 }
 
 function rotateBatch() {
@@ -199,7 +252,8 @@ function computeMovers(thresholdPct = 5) {
     const pc = prevCloseMap.get(sym);
     const ltp = ltpMap.get(sym);
 
-    if (!pc || !ltp) continue;
+    // explicit null/undefined checks so 0 values are allowed
+    if (pc == null || ltp == null) continue;
     if (!Number.isFinite(pc) || !Number.isFinite(ltp)) continue;
 
     const pctChange = ((ltp - pc) / pc) * 100;
@@ -276,7 +330,9 @@ async function stopEngine() {
   if (socket) {
     try {
       socket.close();
-    } catch {}
+    } catch (e) {
+      // ignore close errors
+    }
     socket = null;
   }
 
@@ -290,13 +346,24 @@ async function getMovers() {
   }
 
   const movers = computeMovers(5);
-  for (const m of movers) {
-    await M1Mover.findOneAndUpdate(
-      { symbol: m.symbol },
-      { ...m, capturedAt: new Date() },
-      { upsert: true }
-    );
-  }
+
+  // upsert movers in controlled parallelism
+  await asyncPool(
+    movers,
+    async (m) => {
+      try {
+        await M1Mover.findOneAndUpdate(
+          { symbol: m.symbol },
+          { ...m, capturedAt: new Date() },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.warn("[getMovers] DB upsert fail for", m.symbol, err?.message || err);
+        lastError = err?.message || String(err);
+      }
+    },
+    DB_UPSERT_CONCURRENCY
+  );
 
   return { ok: true, count: movers.length, data: movers };
 }

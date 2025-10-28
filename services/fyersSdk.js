@@ -96,7 +96,7 @@ function historyParamsForRange(symbol, resolution, range_from, range_to) {
  */
 async function getHistorical(symbol, resolution = "D", range_from, range_to) {
   const params = historyParamsForRange(symbol, resolution, range_from, range_to);
-  console.log("[fyersSdk] getHistorical params:", params);
+  
 
   let attempt = 0;
   let lastErr = null;
