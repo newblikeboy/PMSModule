@@ -167,80 +167,190 @@ async function warmupPrevCloses(symbols) {
 // -----------------------------------------------------
 // STEP 3. SOCKET MANAGEMENT
 // -----------------------------------------------------
+// keep these module-scope helpers/vars alongside your other state
+let currentSubscribedBatch = [];
+let isSubscribing = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY_MS = 60 * 1000; // 1 minute cap
+
 async function ensureSocketConnected() {
+  // if socket already exists and appears connected, do nothing
   if (socket) return;
 
-  const socketToken = await getSocketToken();
-  socket = new fyersDataSocket(socketToken, "./");
+  try {
+    const socketToken = await getSocketToken();
+    socket = new fyersDataSocket(socketToken, "./");
 
-  socket.on("connect", () => {
-    console.log("[Socket] Connected to Fyers Stream");
-    lastHeartbeatTs = Date.now();
-    subscribeCurrentBatch();
-    // attempt reconnection strategy provided by sdk (if available)
-    if (typeof socket.autoreconnect === "function") {
-      try { socket.autoreconnect(10); } catch (e) {}
+    // reset reconnect attempts on a fresh instance
+    reconnectAttempts = 0;
+
+    socket.on("connect", () => {
+      console.log("[Socket] Connected to Fyers Stream");
+      lastHeartbeatTs = Date.now();
+      // subscribe the current batch (safe-guarded inside subscribeCurrentBatch)
+      subscribeCurrentBatch();
+
+      // prefer SDK autoreconnect if available
+      if (typeof socket.autoreconnect === "function") {
+        try {
+          socket.autoreconnect(10);
+        } catch (e) {
+          console.warn("[Socket] autoreconnect call failed:", e?.message || e);
+        }
+      }
+    });
+
+    socket.on("message", (msg) => {
+      // normalize many shapes of payloads
+      const data = Array.isArray(msg) ? msg : (msg?.d ?? msg?.data ?? msg);
+      const arr = Array.isArray(data) ? data : [data];
+
+      for (const t of arr) {
+        // support multiple common alias fields
+        const sym = t?.symbol ?? t?.s ?? t?.n ?? t?.nseSym;
+        const ltpCandidate = t?.ltp ?? t?.c ?? t?.price ?? t?.v?.lp ?? t?.v?.last_price ?? t?.last_price;
+
+        // if ltpCandidate is an object (some SDKs nest it), try to dig numeric
+        let ltp = ltpCandidate;
+        if (ltp && typeof ltp === "object") {
+          // find first numeric property
+          for (const k of Object.keys(ltp)) {
+            const v = ltp[k];
+            if (v != null && Number.isFinite(Number(v))) {
+              ltp = Number(v);
+              break;
+            }
+          }
+        }
+
+        if (!sym) continue;
+        if (ltp == null) continue; // allow 0 but not null/undefined
+        const num = Number(ltp);
+        if (!Number.isFinite(num)) continue;
+
+        ltpMap.set(sym, num);
+      }
+
+      lastHeartbeatTs = Date.now();
+    });
+
+    socket.on("error", (err) => {
+      lastError = err?.message || String(err);
+      console.error("[Socket Error]", err);
+    });
+
+    socket.on("close", (code, reason) => {
+      console.warn("[Socket] Closed", code ?? "", reason ?? "");
+      // clear the socket ref so ensureSocketConnected can recreate it
+      socket = null;
+      // reset current subscription tracking
+      currentSubscribedBatch = [];
+      isSubscribing = false;
+      // schedule reconnect (only if SDK didn't already do autoreconnect)
+      scheduleReconnect();
+    });
+
+    // actually open connection
+    try {
+      socket.connect();
+    } catch (err) {
+      console.error("[Socket] connect() threw:", err?.message || err);
+      socket = null;
+      scheduleReconnect();
     }
-  });
-
-  socket.on("message", (msg) => {
-    const data = Array.isArray(msg) ? msg : (msg?.d || msg?.data || [msg]);
-    const arr = Array.isArray(data) ? data : [data];
-
-    for (const t of arr) {
-      const sym = t?.symbol || t?.s;
-      const ltp = (t && (t.ltp ?? t.c ?? t.price));
-      if (!sym || ltp == null) continue; // allow ltp = 0
-      ltpMap.set(sym, Number(ltp));
-    }
-
-    lastHeartbeatTs = Date.now();
-  });
-
-  socket.on("error", (err) => {
+  } catch (err) {
     lastError = err?.message || String(err);
-    console.error("[Socket Error]", err);
-  });
+    console.error("[Socket] ensureSocketConnected error:", lastError);
+    // schedule reconnect if token fetch failed
+    scheduleReconnect();
+  }
+}
 
-  socket.on("close", () => {
-    console.warn("[Socket] Closed");
-    socket = null;
-  });
+function scheduleReconnect() {
+  // do not flood reconnect attempts; use exponential backoff
+  reconnectAttempts = Math.min(20, reconnectAttempts + 1);
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY_MS);
 
-  socket.connect();
+  console.log(`[Socket] scheduling reconnect attempt #${reconnectAttempts} in ${Math.round(delay / 1000)}s`);
+  setTimeout(() => {
+    // try to connect again
+    ensureSocketConnected().catch(e => {
+      console.error("[Socket] reconnect attempt failed:", e?.message || e);
+      // schedule next attempt
+      scheduleReconnect();
+    });
+  }, delay);
 }
 
 function subscribeCurrentBatch() {
-  if (!socket) return;
-  if (!universeSymbols.length) return;
+  // guard: must have socket and universe symbols
+  if (!socket) {
+    // ensure a socket will be created if needed
+    ensureSocketConnected().catch(e => console.error("[subscribeCurrentBatch] ensureSocketConnected error", e?.message || e));
+    return;
+  }
+  if (!universeSymbols || universeSymbols.length === 0) return;
 
-  const start = currentBatchIndex * BATCH_SIZE;
-  const end = Math.min(start + BATCH_SIZE, universeSymbols.length);
-  const batch = universeSymbols.slice(start, end);
+  // avoid re-entrant subscribe calls
+  if (isSubscribing) return;
+  isSubscribing = true;
 
-  if (!batch.length) return;
-
-  console.log(`[Socket] Subscribing batch ${currentBatchIndex} (${batch.length} symbols)`);
   try {
-    socket.subscribe(batch, "lite");
-    lastSubscriptionRotateTs = Date.now();
-  } catch (err) {
-    lastError = err?.message || String(err);
-    console.error("[subscribeCurrentBatch] subscribe error", err);
+    const start = currentBatchIndex * BATCH_SIZE;
+    const end = Math.min(start + BATCH_SIZE, universeSymbols.length);
+    const batch = universeSymbols.slice(start, end);
+
+    if (!batch.length) return;
+
+    // if we previously subscribed a different batch, try to unsubscribe it first
+    const prev = currentSubscribedBatch;
+    if (prev && prev.length) {
+      try {
+        // some SDKs support unsubscribe; ignore errors if not supported
+        if (typeof socket.unsubscribe === "function") {
+          socket.unsubscribe(prev);
+          console.log(`[Socket] Unsubscribed previous batch (${prev.length} symbols)`);
+        }
+      } catch (uerr) {
+        console.warn("[Socket] unsubscribe failed, continuing:", uerr?.message || uerr);
+      }
+    }
+
+    // perform subscription
+    try {
+      socket.subscribe(batch, "lite");
+      currentSubscribedBatch = batch;
+      lastSubscriptionRotateTs = Date.now();
+      console.log(`[Socket] Subscribed batch ${currentBatchIndex} (${batch.length} symbols)`);
+    } catch (err) {
+      lastError = err?.message || String(err);
+      console.error("[subscribeCurrentBatch] subscribe error", err);
+    }
+  } finally {
+    // unlock subscribing flag after a tick to avoid blocking rotateBatch from scheduling later.
+    setImmediate(() => { isSubscribing = false; });
   }
 }
 
 function rotateBatch() {
-  if (!universeSymbols.length) return;
-  if (!socket) return;
+  // safety guards
+  if (!universeSymbols || universeSymbols.length === 0) return;
+  // if socket absent, attempt to create it and skip rotation now
+  if (!socket) {
+    ensureSocketConnected().catch(e => console.error("[rotateBatch] ensureSocketConnected error", e?.message || e));
+    return;
+  }
 
+  // increment index and wrap
   currentBatchIndex++;
   if (currentBatchIndex * BATCH_SIZE >= universeSymbols.length) {
     currentBatchIndex = 0;
   }
 
+  // subscribe to the new batch (subscribeCurrentBatch is guarded)
   subscribeCurrentBatch();
 }
+
 
 // -----------------------------------------------------
 // STEP 4. MOVER CALCULATION
