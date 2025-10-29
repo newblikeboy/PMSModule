@@ -2,7 +2,7 @@ const { DateTime } = require("luxon");
 
 const IST = "Asia/Kolkata";
 
-function todayCutoffTs(hour = 10, minute = 30) {
+function todayCutoffTs(hour = 13, minute = 30) {
   const cut = DateTime.now()
     .setZone(IST)
     .set({ hour, minute, second: 0, millisecond: 0 });

@@ -1,4 +1,5 @@
-require("dotenv").config();
+const dotenv = require("dotenv");
+dotenv.config(); // load .env if present
 const express = require("express");
 const morgan = require("morgan");
 const path = require("path");
