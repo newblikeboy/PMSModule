@@ -14,7 +14,7 @@ const M1Mover = require("../models/M1Mover");
 // Config (tune via env)
  // default values chosen conservatively for production stability
 const CONFIG = {
-  BATCH_SIZE: Number(process.env.M1_BATCH_SIZE) || 50,
+  BATCH_SIZE: Number(process.env.M1_BATCH_SIZE) || 200,
   PREV_CLOSE_CONCURRENCY: Number(process.env.M1_PREV_CLOSE_CONCURRENCY) || 12,
   DB_UPSERT_CONCURRENCY: Number(process.env.M1_DB_UPSERT_CONCURRENCY) || 12,
   ROTATE_INTERVAL_MS: Number(process.env.M1_ROTATE_INTERVAL_MS) || 5000,
