@@ -837,5 +837,52 @@ setInterval(()=>{
 }, 30000);
 
 
+// ============================
+// Live Fyers DataSocket Viewer
+// ============================
+(() => {
+  const box = document.getElementById("socketStreamBox");
+  const clearBtn = document.getElementById("btnClearSocketLog");
+  if (!box) return;
+
+  // Event bus — optional: if your backend already streams via SSE or WS,
+  // replace this demo with a real-time fetch or socket message handler.
+  // Below example uses a simple poll endpoint `/api/socket-stream` returning recent ticks.
+
+  async function fetchLatestTicks() {
+    try {
+      const res = await fetch("/api/socket-stream");
+      const data = await res.json();
+      renderTicks(data);
+    } catch (err) {
+      console.error("socket-stream fetch error:", err);
+    }
+  }
+
+  function renderTicks(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) {
+      box.innerHTML = "<div style='opacity:0.6'>No recent ticks</div>";
+      return;
+    }
+    const html = arr
+      .slice(-50)
+      .reverse()
+      .map(
+        (t) =>
+          `<div><span style="color:#4effa1;">${t.symbol}</span> → ${t.ltp} <span style="opacity:0.6;">(${new Date(t.ts).toLocaleTimeString()})</span></div>`
+      )
+      .join("");
+    box.innerHTML = html;
+  }
+
+  clearBtn.addEventListener("click", () => {
+    box.innerHTML = "<div style='opacity:0.6'>Cleared</div>";
+  });
+
+  // Poll every 2s (you can switch to a WebSocket or SSE for push updates)
+  setInterval(fetchLatestTicks, 2000);
+})();
+
+
 
 })(); // END IIFE

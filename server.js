@@ -38,6 +38,40 @@ app.use("/user", userRoutes);
 app.use("/admin", adminRoutes);
 app.use("/fyers", fyersRoutes);
 
+//Testing Purpose - Live Tick Data Stream
+// server.js (or routes file)
+const m1Service = require("./services/m1.service"); // adjust path to match your project
+
+app.get("/api/socket-stream", (req, res) => {
+  try {
+    // Prefer exported snapshot if available
+    if (m1Service && typeof m1Service._getLtpSnapshot === "function") {
+      const snapshot = m1Service._getLtpSnapshot() || [];
+      return res.json(snapshot.slice(-50));
+    }
+
+    // Fallback: try global.ltpMap (if you set that)
+    if (global.ltpMap && typeof global.ltpMap.entries === "function") {
+      const arr = Array.from(global.ltpMap.entries()).map(([symbol, ltp]) => ({
+        symbol,
+        ltp: Number(ltp),
+        ts: Date.now()
+      }));
+      return res.json(arr.slice(-50));
+    }
+
+    // No source found — return helpful dev error (500)
+    const msg = "No ltp snapshot available. Export _getLtpSnapshot() from m1 service or set global.ltpMap = ltpMap.";
+    console.warn("/api/socket-stream:", msg);
+    return res.status(500).json({ error: msg });
+  } catch (err) {
+    // log full stack for debugging
+    console.error("/api/socket-stream error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+
 
 // error handler
 app.use(errorHandler);

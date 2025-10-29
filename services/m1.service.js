@@ -11,15 +11,34 @@ const { todayCutoffTs, isBeforeCutoff, IST } = require("../utils/time");
 const M1Mover = require("../models/M1Mover");
 
 // ---------------------------
+// Config (tune via env)
+ // default values chosen conservatively for production stability
+const CONFIG = {
+  BATCH_SIZE: Number(process.env.M1_BATCH_SIZE) || 50,
+  PREV_CLOSE_CONCURRENCY: Number(process.env.M1_PREV_CLOSE_CONCURRENCY) || 12,
+  DB_UPSERT_CONCURRENCY: Number(process.env.M1_DB_UPSERT_CONCURRENCY) || 12,
+  ROTATE_INTERVAL_MS: Number(process.env.M1_ROTATE_INTERVAL_MS) || 5000,
+  HEARTBEAT_INTERVAL_MS: Number(process.env.M1_HEARTBEAT_INTERVAL_MS) || 10000,
+  PREV_CLOSE_RETRY: Number(process.env.M1_PREV_CLOSE_RETRY) || 3,
+  PREV_CLOSE_RETRY_BASE_MS: Number(process.env.M1_PREV_CLOSE_RETRY_BASE_MS) || 500,
+  SOCKET_TOKEN_MIN_LENGTH: 20 // quick sanity
+};
+
+// convenience aliases
+const BATCH_SIZE = CONFIG.BATCH_SIZE;
+const PREV_CLOSE_CONCURRENCY = CONFIG.PREV_CLOSE_CONCURRENCY;
+const DB_UPSERT_CONCURRENCY = CONFIG.DB_UPSERT_CONCURRENCY;
+
+// ---------------------------
 // Internal engine state
 // ---------------------------
 let engineOn = false;
 let socket = null;
-let universeSymbols = [];
-const BATCH_SIZE = 200;
+let universeSymbols = []; // canonical fyers symbols (strings)
 let currentBatchIndex = 0;
-const prevCloseMap = new Map();
-const ltpMap = new Map();
+
+const prevCloseMap = new Map(); // symbol -> prevClose
+const ltpMap = new Map(); // symbol -> latest ltp (number)
 
 let lastError = null;
 let lastHeartbeatTs = null;
@@ -29,15 +48,28 @@ let rotationIntervalHandle = null;
 let heartbeatIntervalHandle = null;
 let autoStopTimeoutHandle = null;
 
-// ---------------------------
-// Optimization / tuning
-// ---------------------------
-const PREV_CLOSE_CONCURRENCY = 10; // number of parallel history requests
-const DB_UPSERT_CONCURRENCY = 10; // parallel savers for movers
+// socket helpers / guards
+let currentSubscribedBatch = [];
+let isSubscribing = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY_MS = 60 * 1000; // 1 minute cap
+const MIN_ROTATE_MS = 1500;
+let lastRotateTs = 0;
 
-// ---------------------------------
-// small generic concurrency pool
-// ---------------------------------
+// compact tick logging
+let _compactTickBuffer = [];
+let _compactLastFlushTs = 0;
+const COMPACT_FLUSH_MS = 900;
+
+// ---------------------------
+// ALERT / DEDUPE
+// ---------------------------
+const ALERT_THRESHOLD_PCT = Number(process.env.M1_ALERT_THRESHOLD_PCT) || 5; // percent threshold
+const lastAlertPct = new Map(); // symbol -> last alerted pct (number)
+
+// ---------------------------
+// Utility: small concurrency pool
+// ---------------------------
 async function asyncPool(items, workerFn, concurrency = 5) {
   const results = [];
   const executing = new Set();
@@ -47,11 +79,10 @@ async function asyncPool(items, workerFn, concurrency = 5) {
     results.push(p);
     executing.add(p);
 
-    const cleanUp = () => executing.delete(p);
-    p.then(cleanUp, cleanUp);
+    const cleanup = () => executing.delete(p);
+    p.then(cleanup, cleanup);
 
     if (executing.size >= concurrency) {
-      // wait for any to finish
       await Promise.race(executing);
     }
   }
@@ -59,9 +90,23 @@ async function asyncPool(items, workerFn, concurrency = 5) {
   return Promise.all(results);
 }
 
-// -----------------------------------------------------
-// STEP 1. LOAD UNIVERSE (async, non-blocking)
-// -----------------------------------------------------
+// ---------------------------
+// Utility: sleep & backoff
+// ---------------------------
+function sleep(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+function backoffDelay(baseMs, attempt) {
+  // jittered exponential backoff
+  const jitter = Math.random() * baseMs;
+  return Math.min(MAX_RECONNECT_DELAY_MS, Math.round(baseMs * Math.pow(2, attempt - 1) + jitter));
+}
+
+// ---------------------------
+// STEP 1. LOAD UNIVERSE
+// ---------------------------
+// Normalizes duplicates, uses fy.toFyersSymbol if available
 async function loadUniverse() {
   try {
     const p = path.join(__dirname, "../nse_universe.json");
@@ -72,10 +117,9 @@ async function loadUniverse() {
     const clean = [];
 
     for (const rawItem of arr) {
-      if (!rawItem && rawItem !== 0) continue;
+      if (rawItem === undefined || rawItem === null) continue;
       const s = String(rawItem).trim();
       if (!s) continue;
-
       const full = fy.toFyersSymbol ? fy.toFyersSymbol(s) : (s.startsWith("NSE:") ? s : `NSE:${s}-EQ`);
       if (full && !seen.has(full)) {
         seen.add(full);
@@ -85,69 +129,74 @@ async function loadUniverse() {
 
     return clean;
   } catch (err) {
-    lastError = "[loadUniverse] " + (err && err.message ? err.message : String(err));
+    lastError = `[loadUniverse] ${err?.message ?? String(err)}`;
     console.error(lastError);
     return [];
   }
 }
 
-// -----------------------------------------------------
-// STEP 2. FETCH PREV CLOSE FOR EACH SYMBOL
-// -----------------------------------------------------
+// ---------------------------
+// STEP 2. FETCH PREV CLOSE
+// ---------------------------
+// robust: retries with backoff, isolated errors per symbol
 async function fetchPrevClose(symbolFyersFormat) {
-  try {
-    const nowIST = DateTime.now().setZone(IST);
-    const to = nowIST.toISODate();
-    const from = nowIST.minus({ days: 7 }).toISODate();
+  for (let attempt = 1; attempt <= CONFIG.PREV_CLOSE_RETRY; attempt++) {
+    try {
+      const nowIST = DateTime.now().setZone(IST);
+      const to = nowIST.toISODate();
+      const from = nowIST.minus({ days: 7 }).toISODate();
 
-    const resp = await fy.getHistory({
-      symbol: symbolFyersFormat,
-      resolution: "D",
-      range_from: from,
-      range_to: to
-    });
+      const resp = await fy.getHistory({
+        symbol: symbolFyersFormat,
+        resolution: "D",
+        range_from: from,
+        range_to: to
+      });
 
-    const candles = resp?.candles || [];
-    if (candles.length < 1) {
-      throw new Error("no historical candles");
+      const candles = resp?.candles || resp?.data || [];
+      if (!Array.isArray(candles) || candles.length < 1) {
+        throw new Error("no historical candles");
+      }
+
+      const prev = candles[candles.length - 2] || candles[candles.length - 1];
+      const prevClose = Number(prev[4]);
+
+      if (!Number.isFinite(prevClose)) {
+        throw new Error("prevClose NaN");
+      }
+
+      return prevClose;
+    } catch (err) {
+      const msg = err?.message ?? String(err);
+      console.warn(`[fetchPrevClose] ${symbolFyersFormat} attempt ${attempt} failed: ${msg}`);
+      lastError = msg;
+      if (attempt < CONFIG.PREV_CLOSE_RETRY) {
+        const d = backoffDelay(CONFIG.PREV_CLOSE_RETRY_BASE_MS, attempt);
+        await sleep(d);
+      }
     }
-
-    // prefer the day-before-last; fallback to last
-    const prev = candles[candles.length - 2] || candles[candles.length - 1];
-    const prevClose = Number(prev[4]);
-
-    if (!Number.isFinite(prevClose)) {
-      throw new Error("prevClose NaN");
-    }
-
-    return prevClose;
-  } catch (err) {
-    // keep the symbol's failure isolated
-    console.warn("[fetchPrevClose] Fail for", symbolFyersFormat, err?.message || err);
-    lastError = err?.message || String(err);
-    return null;
   }
+  // final failure
+  return null;
 }
 
 async function warmupPrevCloses(symbols) {
   prevCloseMap.clear();
   const results = [];
 
-  // worker to fetch and store
   async function worker(sym) {
     const pc = await fetchPrevClose(sym);
-    if (pc != null) { // explicit null check (allows 0)
+    if (pc != null) {
       prevCloseMap.set(sym, pc);
       return { symbol: sym, prevClose: pc };
     }
     return null;
   }
 
+  // run with controlled concurrency
   const fetched = await asyncPool(symbols, worker, PREV_CLOSE_CONCURRENCY);
 
-  for (const r of fetched) {
-    if (r) results.push(r);
-  }
+  for (const r of fetched) if (r) results.push(r);
 
   const loadedCount = prevCloseMap.size;
   const totalCount = symbols.length;
@@ -164,56 +213,65 @@ async function warmupPrevCloses(symbols) {
   }
 }
 
-// -----------------------------------------------------
+// ---------------------------
 // STEP 3. SOCKET MANAGEMENT
-// -----------------------------------------------------
-// keep these module-scope helpers/vars alongside your other state
-let currentSubscribedBatch = [];
-let isSubscribing = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_DELAY_MS = 60 * 1000; // 1 minute cap
+// ---------------------------
+// Helpers for compact terminal prints
+function _flushCompactTicksIfNeeded(force = false) {
+  const now = Date.now();
+  if (force || now - _compactLastFlushTs >= COMPACT_FLUSH_MS) {
+    if (_compactTickBuffer.length > 0) {
+      const line = _compactTickBuffer.join("   ");
+      try {
+        process.stdout.write(line + "\n");
+      } catch (e) {
+        console.log(line);
+      }
+      _compactTickBuffer = [];
+    }
+    _compactLastFlushTs = now;
+  }
+}
 
 async function ensureSocketConnected() {
-  // if socket already exists and appears connected, do nothing
   if (socket) return;
 
   try {
     const socketToken = await getSocketToken();
-    socket = new fyersDataSocket(socketToken, "./");
+    if (!socketToken || String(socketToken).indexOf(":") === -1 || String(socketToken).length < CONFIG.SOCKET_TOKEN_MIN_LENGTH) {
+      lastError = "socket token invalid or not in <APP_ID>:<ACCESS_TOKEN> format";
+      console.warn("[Socket] " + lastError);
+      // still attempt to connect — getSocketToken should be fixed in that case
+    }
 
-    // reset reconnect attempts on a fresh instance
+    socket = new fyersDataSocket(socketToken);
+
     reconnectAttempts = 0;
 
     socket.on("connect", () => {
       console.log("[Socket] Connected to Fyers Stream");
       lastHeartbeatTs = Date.now();
-      // subscribe the current batch (safe-guarded inside subscribeCurrentBatch)
+      // subscribe current batch (idempotent)
       subscribeCurrentBatch();
 
-      // prefer SDK autoreconnect if available
       if (typeof socket.autoreconnect === "function") {
-        try {
-          socket.autoreconnect(10);
-        } catch (e) {
-          console.warn("[Socket] autoreconnect call failed:", e?.message || e);
-        }
+        try { socket.autoreconnect(); } catch (e) { console.warn("[Socket] autoreconnect failed:", e?.message || e); }
       }
     });
 
     socket.on("message", (msg) => {
-      // normalize many shapes of payloads
+      // Normalize payload
       const data = Array.isArray(msg) ? msg : (msg?.d ?? msg?.data ?? msg);
       const arr = Array.isArray(data) ? data : [data];
 
+      const parsedForPrint = [];
+
       for (const t of arr) {
-        // support multiple common alias fields
         const sym = t?.symbol ?? t?.s ?? t?.n ?? t?.nseSym;
         const ltpCandidate = t?.ltp ?? t?.c ?? t?.price ?? t?.v?.lp ?? t?.v?.last_price ?? t?.last_price;
 
-        // if ltpCandidate is an object (some SDKs nest it), try to dig numeric
         let ltp = ltpCandidate;
         if (ltp && typeof ltp === "object") {
-          // find first numeric property
           for (const k of Object.keys(ltp)) {
             const v = ltp[k];
             if (v != null && Number.isFinite(Number(v))) {
@@ -224,12 +282,52 @@ async function ensureSocketConnected() {
         }
 
         if (!sym) continue;
-        if (ltp == null) continue; // allow 0 but not null/undefined
+        if (ltp == null) continue;
         const num = Number(ltp);
         if (!Number.isFinite(num)) continue;
 
-        ltpMap.set(sym, num);
+        // update map
+        try {
+          ltpMap.set(sym, num);
+        } catch (e) {
+          // ignore if map unavailable
+        }
+
+        // --- ALERT: check against prevClose and log if >= ALERT_THRESHOLD_PCT ---
+        try {
+          const pc = prevCloseMap.get(sym);
+          if (pc != null && Number.isFinite(pc) && pc > 0) {
+            const changePct = ((num - pc) / pc) * 100;
+            if (changePct >= ALERT_THRESHOLD_PCT) {
+              const prevAlert = lastAlertPct.get(sym) ?? -Infinity;
+              if (changePct >= prevAlert + 0.1) {
+                let alertSym = String(sym);
+                if (alertSym.startsWith("NSE:")) alertSym = alertSym.slice(4);
+                if (alertSym.endsWith("-EQ")) alertSym = alertSym.slice(0, -3);
+                const pctStr = changePct.toFixed(2);
+                const priceStr = Number.isInteger(num) ? String(num) : num.toFixed(2);
+                console.log(`[ALERT] ${alertSym} is up ${pctStr}% (LTP ${priceStr}, prevClose ${pc})`);
+                lastAlertPct.set(sym, changePct);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[M1] alert check error for", sym, e?.message || e);
+        }
+
+        // pretty symbol
+        let prettySym = String(sym);
+        if (prettySym.startsWith("NSE:")) prettySym = prettySym.slice(4);
+        if (prettySym.endsWith("-EQ")) prettySym = prettySym.slice(0, -3);
+        const formatted = Number.isInteger(num) ? String(num) : num.toFixed(2);
+
+        parsedForPrint.push(`${prettySym} → ${formatted}`);
       }
+
+      if (parsedForPrint.length) {
+        _compactTickBuffer.push(...parsedForPrint);
+      }
+      _flushCompactTicksIfNeeded();
 
       lastHeartbeatTs = Date.now();
     });
@@ -241,57 +339,49 @@ async function ensureSocketConnected() {
 
     socket.on("close", (code, reason) => {
       console.warn("[Socket] Closed", code ?? "", reason ?? "");
-      // clear the socket ref so ensureSocketConnected can recreate it
       socket = null;
-      // reset current subscription tracking
       currentSubscribedBatch = [];
       isSubscribing = false;
-      // schedule reconnect (only if SDK didn't already do autoreconnect)
+      _flushCompactTicksIfNeeded(true);
       scheduleReconnect();
     });
 
-    // actually open connection
+    // open
     try {
-      socket.connect();
+      if (typeof socket.connect === "function") socket.connect();
+      else if (typeof socket.open === "function") socket.open();
+      else console.warn("[Socket] no connect/open method on socket instance");
     } catch (err) {
-      console.error("[Socket] connect() threw:", err?.message || err);
+      console.error("[Socket] connect threw:", err?.message || err);
       socket = null;
       scheduleReconnect();
     }
   } catch (err) {
     lastError = err?.message || String(err);
     console.error("[Socket] ensureSocketConnected error:", lastError);
-    // schedule reconnect if token fetch failed
     scheduleReconnect();
   }
 }
 
 function scheduleReconnect() {
-  // do not flood reconnect attempts; use exponential backoff
   reconnectAttempts = Math.min(20, reconnectAttempts + 1);
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY_MS);
 
-  console.log(`[Socket] scheduling reconnect attempt #${reconnectAttempts} in ${Math.round(delay / 1000)}s`);
+  console.log(`[Socket] scheduling reconnect attempt #${reconnectAttempts} in ${Math.round(delay/1000)}s`);
   setTimeout(() => {
-    // try to connect again
     ensureSocketConnected().catch(e => {
       console.error("[Socket] reconnect attempt failed:", e?.message || e);
-      // schedule next attempt
       scheduleReconnect();
     });
   }, delay);
 }
 
 function subscribeCurrentBatch() {
-  // guard: must have socket and universe symbols
   if (!socket) {
-    // ensure a socket will be created if needed
     ensureSocketConnected().catch(e => console.error("[subscribeCurrentBatch] ensureSocketConnected error", e?.message || e));
     return;
   }
-  if (!universeSymbols || universeSymbols.length === 0) return;
-
-  // avoid re-entrant subscribe calls
+  if (!Array.isArray(universeSymbols) || universeSymbols.length === 0) return;
   if (isSubscribing) return;
   isSubscribing = true;
 
@@ -299,62 +389,77 @@ function subscribeCurrentBatch() {
     const start = currentBatchIndex * BATCH_SIZE;
     const end = Math.min(start + BATCH_SIZE, universeSymbols.length);
     const batch = universeSymbols.slice(start, end);
-
     if (!batch.length) return;
 
-    // if we previously subscribed a different batch, try to unsubscribe it first
-    const prev = currentSubscribedBatch;
-    if (prev && prev.length) {
-      try {
-        // some SDKs support unsubscribe; ignore errors if not supported
-        if (typeof socket.unsubscribe === "function") {
-          socket.unsubscribe(prev);
-          console.log(`[Socket] Unsubscribed previous batch (${prev.length} symbols)`);
-        }
-      } catch (uerr) {
-        console.warn("[Socket] unsubscribe failed, continuing:", uerr?.message || uerr);
+    // avoid subscribing identical batch twice
+    const sameBatch = currentSubscribedBatch.length === batch.length
+      && currentSubscribedBatch.every((v, i) => v === batch[i]);
+    if (sameBatch) {
+      // still refresh lite mode if available
+      if (typeof socket.mode === "function" && socket.LiteMode != null) {
+        try { socket.mode(socket.LiteMode); } catch (_) {}
       }
+      isSubscribing = false;
+      return;
     }
 
-    // perform subscription
+    // unsubscribe previous batch if supported
+    const prev = currentSubscribedBatch;
+    if (prev && prev.length && typeof socket.unsubscribe === "function") {
+      try { socket.unsubscribe(prev); } catch (uerr) { console.warn("[Socket] unsubscribe failed:", uerr?.message || uerr); }
+    }
+
+    // set lite mode and subscribe
     try {
-      socket.subscribe(batch, "lite");
+      if (typeof socket.mode === "function" && socket.LiteMode != null) {
+        try { socket.mode(socket.LiteMode); } catch (_) {}
+      }
+      socket.subscribe(batch);
+      if (typeof socket.mode === "function" && socket.LiteMode != null) {
+        try { socket.mode(socket.LiteMode); } catch (_) {}
+      }
+      if (typeof socket.autoreconnect === "function") {
+        try { socket.autoreconnect(); } catch (_) {}
+      }
+
       currentSubscribedBatch = batch;
       lastSubscriptionRotateTs = Date.now();
-      console.log(`[Socket] Subscribed batch ${currentBatchIndex} (${batch.length} symbols)`);
+      console.log(`[Socket] Subscribed batch ${currentBatchIndex} (${batch.length} symbols) in LiteMode`);
     } catch (err) {
       lastError = err?.message || String(err);
       console.error("[subscribeCurrentBatch] subscribe error", err);
     }
   } finally {
-    // unlock subscribing flag after a tick to avoid blocking rotateBatch from scheduling later.
     setImmediate(() => { isSubscribing = false; });
   }
 }
 
 function rotateBatch() {
-  // safety guards
-  if (!universeSymbols || universeSymbols.length === 0) return;
-  // if socket absent, attempt to create it and skip rotation now
+  const now = Date.now();
+  if (now - lastRotateTs < MIN_ROTATE_MS) return;
+  lastRotateTs = now;
+
+  if (!Array.isArray(universeSymbols) || universeSymbols.length === 0) return;
   if (!socket) {
     ensureSocketConnected().catch(e => console.error("[rotateBatch] ensureSocketConnected error", e?.message || e));
     return;
   }
 
-  // increment index and wrap
-  currentBatchIndex++;
-  if (currentBatchIndex * BATCH_SIZE >= universeSymbols.length) {
-    currentBatchIndex = 0;
-  }
+  const totalBatches = Math.max(1, Math.ceil(universeSymbols.length / BATCH_SIZE));
+  const prevIndex = currentBatchIndex;
+  currentBatchIndex = (currentBatchIndex + 1) % totalBatches;
+  if (currentBatchIndex === prevIndex) return;
 
-  // subscribe to the new batch (subscribeCurrentBatch is guarded)
-  subscribeCurrentBatch();
+  try {
+    subscribeCurrentBatch();
+  } catch (err) {
+    console.error("[rotateBatch] subscribeCurrentBatch threw:", err?.message || err);
+  }
 }
 
-
-// -----------------------------------------------------
+// ---------------------------
 // STEP 4. MOVER CALCULATION
-// -----------------------------------------------------
+// ---------------------------
 function computeMovers(thresholdPct = 5) {
   const movers = [];
 
@@ -362,7 +467,6 @@ function computeMovers(thresholdPct = 5) {
     const pc = prevCloseMap.get(sym);
     const ltp = ltpMap.get(sym);
 
-    // explicit null/undefined checks so 0 values are allowed
     if (pc == null || ltp == null) continue;
     if (!Number.isFinite(pc) || !Number.isFinite(ltp)) continue;
 
@@ -381,16 +485,15 @@ function computeMovers(thresholdPct = 5) {
   return movers;
 }
 
-// -----------------------------------------------------
+// ---------------------------
 // STEP 5. PUBLIC ENGINE ACTIONS
-// -----------------------------------------------------
+// ---------------------------
 async function startEngine() {
-  if (engineOn) {
-    return { ok: true, msg: "already running" };
-  }
+  if (engineOn) return { ok: true, msg: "already running" };
 
   console.log("[M1] Starting engine...");
 
+  // load universe
   universeSymbols = await loadUniverse();
   if (!universeSymbols.length) {
     lastError = "Universe load failed or empty";
@@ -399,26 +502,31 @@ async function startEngine() {
   }
 
   currentBatchIndex = 0;
+
+  // warmup prev closes (only symbols present)
   await warmupPrevCloses(universeSymbols);
+
+  // connect socket
   await ensureSocketConnected();
 
+  // rotation interval
   if (rotationIntervalHandle) clearInterval(rotationIntervalHandle);
-  rotationIntervalHandle = setInterval(rotateBatch, 5000);
+  rotationIntervalHandle = setInterval(rotateBatch, CONFIG.ROTATE_INTERVAL_MS);
 
+  // heartbeat log
   if (heartbeatIntervalHandle) clearInterval(heartbeatIntervalHandle);
   heartbeatIntervalHandle = setInterval(() => {
     const now = Date.now();
     const ageSec = lastHeartbeatTs ? Math.round((now - lastHeartbeatTs) / 1000) : null;
-
     console.log(
       `[HEARTBEAT] engineOn=${engineOn} ltpMapSize=${ltpMap.size} prevCloseMapSize=${prevCloseMap.size} lastTickAgeSec=${ageSec ?? "n/a"} batch=${currentBatchIndex}`
     );
-  }, 10000);
+  }, CONFIG.HEARTBEAT_INTERVAL_MS);
 
+  // auto-stop before market cutoff
   if (autoStopTimeoutHandle) clearTimeout(autoStopTimeoutHandle);
   const nowSec = Math.floor(DateTime.now().setZone(IST).toSeconds());
   const msTillCutoff = Math.max(0, (todayCutoffTs() - nowSec) * 1000) + 5000;
-
   autoStopTimeoutHandle = setTimeout(() => {
     console.log("[M1] Auto cutoff reached. Stopping engine.");
     stopEngine();
@@ -433,19 +541,30 @@ async function stopEngine() {
   console.log("[M1] Stopping engine...");
   engineOn = false;
 
-  if (rotationIntervalHandle) clearInterval(rotationIntervalHandle);
-  if (heartbeatIntervalHandle) clearInterval(heartbeatIntervalHandle);
-  if (autoStopTimeoutHandle) clearTimeout(autoStopTimeoutHandle);
+  if (rotationIntervalHandle) {
+    clearInterval(rotationIntervalHandle);
+    rotationIntervalHandle = null;
+  }
+  if (heartbeatIntervalHandle) {
+    clearInterval(heartbeatIntervalHandle);
+    heartbeatIntervalHandle = null;
+  }
+  if (autoStopTimeoutHandle) {
+    clearTimeout(autoStopTimeoutHandle);
+    autoStopTimeoutHandle = null;
+  }
 
   if (socket) {
     try {
-      socket.close();
+      if (typeof socket.close === "function") socket.close();
     } catch (e) {
-      // ignore close errors
+      // ignore
     }
     socket = null;
   }
 
+  prevCloseMap.clear();
+  // intentionally keep ltpMap for inspection after stop
   console.log("[M1] Engine stopped.");
   return { ok: true, msg: "stopped" };
 }
@@ -495,4 +614,57 @@ function getStatus() {
   };
 }
 
-module.exports = { startEngine, stopEngine, getMovers, getStatus };
+// ---------------------------
+// Utility exports for admin/UI
+// ---------------------------
+function _getLtpSnapshot() {
+  try {
+    return Array.from(ltpMap.entries()).map(([symbol, ltp]) => ({ symbol, ltp: Number(ltp), ts: Date.now() }));
+  } catch (err) {
+    console.error("[m1._getLtpSnapshot] error:", err?.message || err);
+    return [];
+  }
+}
+
+function _getUniverse() {
+  return Array.from(universeSymbols);
+}
+
+// ---------------------------
+// Graceful shutdown handlers
+// ---------------------------
+function _setupShutdown() {
+  // only set once
+  if (process._m1ShutdownHook) return;
+  process._m1ShutdownHook = true;
+
+  const shutdown = async () => {
+    try {
+      console.log("[M1] shutdown signal received - stopping engine...");
+      await stopEngine();
+      // give a moment for socket close logs to flush
+      setTimeout(() => process.exit(0), 500);
+    } catch (err) {
+      console.error("[M1] shutdown error:", err?.message || err);
+      process.exit(1);
+    }
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+_setupShutdown();
+
+// ---------------------------
+// Module exports
+// ---------------------------
+module.exports = {
+  startEngine,
+  stopEngine,
+  getMovers,
+  getStatus,
+  // debug / admin helpers
+  _getLtpSnapshot,
+  _getUniverse
+};
