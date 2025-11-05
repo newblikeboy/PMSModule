@@ -12,9 +12,10 @@ const { fyersModel, fyersDataSocket } = require("fyers-api-v3");
 const { getAccessToken, getSocketToken } = require("./fyersAuth");
 const axios = require("axios");
 const { DateTime } = require("luxon");
+const { env } = require("../config/env");
 
-const FYERS_API_BASE = process.env.FYERS_API_BASE || "https://api.fyers.in/api/v3";
-const FYERS_DATA_BASE = process.env.FYERS_DATA_BASE || "https://api.fyers.in/data";
+const FYERS_API_BASE = env.FYERS_API_BASE || "https://api.fyers.in/api/v3";
+const FYERS_DATA_BASE = env.FYERS_DATA_BASE || "https://api.fyers.in/data";
 
 // ---------------- helpers ----------------
 function toFyersSymbol(sym) {
@@ -31,8 +32,8 @@ async function buildFyersClient() {
   const token = await getAccessToken();
   const client = new fyersModel();
   // appId + redirect not strictly required for getHistory but harmless to set
-  if (process.env.FYERS_APP_ID) client.setAppId(process.env.FYERS_APP_ID);
-  if (process.env.FYERS_REDIRECT_URI) client.setRedirectUrl(process.env.FYERS_REDIRECT_URI);
+  if (env.FYERS_APP_ID) client.setAppId(env.FYERS_APP_ID);
+  if (env.FYERS_REDIRECT_URI) client.setRedirectUrl(env.FYERS_REDIRECT_URI);
   client.setAccessToken(token);
   return client;
 }

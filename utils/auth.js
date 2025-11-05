@@ -4,8 +4,10 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_this";
-const JWT_EXPIRES = "7d"; // 7 day session
+const { env } = require("../config/env");
+
+const JWT_SECRET = env.JWT_SECRET;
+const JWT_EXPIRES = env.JWT_EXPIRES_IN;
 
 async function hashPassword(plain) {
   const salt = await bcrypt.genSalt(10);

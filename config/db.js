@@ -1,13 +1,28 @@
+"use strict";
+
 const mongoose = require("mongoose");
+const { env } = require("./env");
+
+let isConnected = false;
 
 async function connectDB() {
+  if (isConnected) return mongoose.connection;
+
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("[DB] MongoDB Connected ✅");
+    mongoose.set("strictQuery", true);
+    await mongoose.connect(env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10000
+    });
+    isConnected = true;
+    console.log("[DB] MongoDB connected");
+    return mongoose.connection;
   } catch (err) {
-    console.error("[DB] Connection Error ❌", err.message);
-    process.exit(1);
+    console.error("[DB] Connection error:", err.message);
+    throw err;
   }
 }
 
-module.exports = connectDB;
+module.exports = {
+  connectDB
+};
+
