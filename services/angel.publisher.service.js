@@ -2,27 +2,16 @@
 "use strict";
 
 /**
- * Angel One Publisher OAuth-like flow (multi-user):
- * - GET /auth/angel/login      -> redirect user to Angel publisher-login
- * - GET /auth/angel/callback   -> Angel redirects back with request_token (+ state)
- *   We exchange request_token -> accessToken (JWT) and store it on the user.
+ * Angel One Publisher login flow (multi-user) with robust user resolution:
+ * - /auth/angel/login    -> sets a short-lived cookie (angel_uid) and redirects to publisher login
+ * - /auth/angel/callback -> receives ?auth_token (&feed_token, &refresh_token)
+ *                           identifies the user via state | uid | cookie, and saves tokens
  *
- * Tokens are saved into User.broker.* so your existing UI stays compatible:
- *   user.broker = {
- *     brokerName: "ANGEL",
- *     connected: true,
- *     creds: {
- *       apiKey: ANGEL_API_KEY,
- *       accessToken: <JWT>,
- *       refreshToken: <optional>
- *     }
- *   }
- *
- * ENV required:
- *   ANGEL_API_KEY=your_publisher_app_key
- *   ANGEL_REDIRECT_URL=https://your.domain/auth/angel/callback
- *   ANGEL_BASE=https://apiconnect.angelbroking.com
- *   ANGEL_PUBLISHER_LOGIN=https://smartapi.angelone.in/publisher-login
+ * Requires ENV:
+ *   ANGEL_API_KEY
+ *   ANGEL_REDIRECT_URL         (exact URL registered in Angel dashboard)
+ *   ANGEL_PUBLISHER_LOGIN      (defaults to https://smartapi.angelone.in/publisher-login)
+ *   ANGEL_BASE                 (defaults to https://apiconnect.angelbroking.com)
  */
 
 const axios = require("axios");
@@ -31,11 +20,11 @@ const User = require("../models/User");
 const CFG = {
   API_KEY: process.env.ANGEL_API_KEY,
   REDIRECT: process.env.ANGEL_REDIRECT_URL,
-  PUBLISHER_LOGIN:
-    process.env.ANGEL_PUBLISHER_LOGIN || "https://smartapi.angelone.in/publisher-login",
+  PUBLISHER_LOGIN: process.env.ANGEL_PUBLISHER_LOGIN || "https://smartapi.angelone.in/publisher-login",
   BASE: process.env.ANGEL_BASE || "https://apiconnect.angelbroking.com",
 };
 
+// ---------- helpers ----------
 function assertEnv() {
   const miss = [];
   if (!CFG.API_KEY) miss.push("ANGEL_API_KEY");
@@ -57,37 +46,48 @@ function baseHeaders(apiKey, accessToken) {
   };
 }
 
-/**
- * Start Publisher login.
- * If you mount this behind authRequired, it will use req.user._id automatically.
- * Fallback: accepts ?userId=... for admin-initiated flows.
- */
-async function buildLoginUrlForUserId(userId) {
-  assertEnv();
-
-  const id = String(userId || "").trim();
-  if (!id) {
-    throw new Error("userId required");
+function setCookie(res, name, value, { maxAgeSec = 600, path = "/", httpOnly = true, sameSite = "Lax" } = {}) {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Path=${path}`,
+    `Max-Age=${maxAgeSec}`,
+    httpOnly ? "HttpOnly" : "",
+    sameSite ? `SameSite=${sameSite}` : "",
+  ].filter(Boolean);
+  // allow multiple set-cookie headers
+  const prev = res.getHeader("Set-Cookie");
+  if (prev) {
+    const arr = Array.isArray(prev) ? prev : [prev];
+    arr.push(parts.join("; "));
+    res.setHeader("Set-Cookie", arr);
+  } else {
+    res.setHeader("Set-Cookie", parts.join("; "));
   }
-
-  const user = await User.findById(id);
-  if (!user) {
-    throw new Error("user not found");
-  }
-
-  const url = new URL(CFG.PUBLISHER_LOGIN);
-  url.searchParams.set("api_key", CFG.API_KEY);
-  url.searchParams.set("redirect_url", CFG.REDIRECT);
-  url.searchParams.set("state", id);
-
-  return url.toString();
 }
 
+function getCookie(req, name) {
+  const raw = req.headers?.cookie || "";
+  if (!raw) return null;
+  const parts = raw.split(/;\s*/);
+  for (const p of parts) {
+    const [k, ...rest] = p.split("=");
+    if (k === name) return decodeURIComponent(rest.join("=") || "");
+  }
+  return null;
+}
+
+// ---------- routes ----------
+
+/**
+ * Start Publisher login:
+ * - requires authenticated user (route should have authRequired)
+ * - sets angel_uid cookie as fallback user identity
+ * - redirects to Publisher login with state & uid
+ */
 async function startLogin(req, res) {
   try {
     assertEnv();
 
-    // must be authenticated due to route middleware; fallback to query if admin is initiating
     const authedUserId = req.user?._id?.toString?.();
     const userId = String(req.query.userId || authedUserId || "").trim();
     if (!userId) return res.status(400).send("userId required (or pass Authorization Bearer)");
@@ -95,11 +95,14 @@ async function startLogin(req, res) {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send("user not found");
 
+    // set short-lived cookie in case Angel drops state/uid
+    setCookie(res, "angel_uid", userId, { maxAgeSec: 600 });
+
     const url = new URL(CFG.PUBLISHER_LOGIN);
     url.searchParams.set("api_key", CFG.API_KEY);
     url.searchParams.set("redirect_url", CFG.REDIRECT);
 
-    // We send both state and uid because some environments drop state.
+    // send both; some environments drop state
     url.searchParams.set("state", userId);
     url.searchParams.set("uid", userId);
 
@@ -111,22 +114,28 @@ async function startLogin(req, res) {
 }
 
 /**
- * Callback from Angel with ?request_token=&state=
- * Exchanges request_token -> JWT, stores on the user record.
+ * Callback:
+ * Accepts:
+ *   ?auth_token=... (&feed_token=..., &refresh_token=...)
+ * or legacy:
+ *   ?request_token=... (&state=...)
+ *
+ * Identifies user by priority: state -> uid -> angel_uid cookie.
+ * Saves tokens to user.broker.creds and renders an auto-close page.
  */
-// services/angel.publisher.service.js
 async function handleCallback(req, res) {
   try {
     assertEnv();
 
-    // Publisher sends ?auth_token=... (&feed_token=...)  OR older flow ?request_token=...
-    const { auth_token, feed_token, request_token, state, uid } = req.query;
+    const { auth_token, feed_token, refresh_token, request_token, state, uid } = req.query;
 
-    // Identify user: prefer state -> uid -> req.user (route is authProtected)
-    const userId =
-      String(state || uid || req.user?._id || "").trim();
-
-    if (!userId) return res.status(400).send("cannot identify user (no state/uid and not authenticated)");
+    // Identify user (no auth header in popup; rely on query or cookie)
+    let userId = String(state || uid || "").trim();
+    if (!userId) {
+      const fromCookie = getCookie(req, "angel_uid");
+      if (fromCookie) userId = String(fromCookie).trim();
+    }
+    if (!userId) return res.status(400).send("cannot identify user (missing state/uid/cookie)");
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).send("user not found");
@@ -135,8 +144,11 @@ async function handleCallback(req, res) {
     let refreshToken = null;
 
     if (auth_token) {
+      // direct Publisher JWT
       accessToken = String(auth_token);
+      if (refresh_token) refreshToken = String(refresh_token);
     } else if (request_token) {
+      // exchange legacy request_token -> JWT
       const url = `${CFG.BASE}/rest/auth/angelbroking/jwt/v1/generateTokens`;
       const resp = await axios.post(
         url,
@@ -154,7 +166,7 @@ async function handleCallback(req, res) {
       return res.status(400).send("missing auth_token/request_token");
     }
 
-    // Persist to user.broker
+    // persist tokens
     user.broker = user.broker || {};
     user.broker.brokerName = "ANGEL";
     user.broker.connected = true;
@@ -166,13 +178,19 @@ async function handleCallback(req, res) {
 
     await user.save();
 
-    return res.send(
-      `<html><body><script>
-        try{window.opener && window.opener.postMessage({ok:true,provider:"angel"}, "*");}catch(e){}
-        window.close && window.close();
-      </script>
-      <p>Angel login successful. You may close this window.</p></body></html>`
-    );
+    // clear the temp cookie
+    setCookie(res, "angel_uid", "", { maxAgeSec: 0 });
+
+    // silent auto-close page (no redirect)
+    return res.status(200).type("html").send(`<!doctype html>
+<meta charset="utf-8">
+<script>
+try {
+  window.opener && window.opener.postMessage({ ok:true, provider:"angel", tokenSaved:true }, window.location.origin);
+} catch(e) {}
+try { window.close(); } catch(e) {}
+setTimeout(()=>{ document.body.textContent="Angel login successful. You can close this window."; }, 300);
+</script>`);
   } catch (e) {
     console.error("[angel.publisher] callback error:", e?.response?.data || e?.message || e);
     res.status(500).send("Callback error");
@@ -182,5 +200,4 @@ async function handleCallback(req, res) {
 module.exports = {
   startLogin,
   handleCallback,
-  buildLoginUrlForUserId,
 };
