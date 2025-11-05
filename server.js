@@ -1,66 +1,86 @@
-"use strict";
+const dotenv = require("dotenv");
+dotenv.config(); // load .env if present
+const express = require("express");
+const morgan = require("morgan");
+const path = require("path");
 
-const http = require("http");
+const connectDB = require("./config/db");
+const m1Routes = require("./routes/m1.routes");
+const errorHandler = require("./middlewares/errorHandler");
+const m2Routes = require("./routes/m2.routes");
+const tradeRoutes = require("./routes/trade.routes");
+const { startScheduler } = require("./scheduler");
+const reportRoutes = require("./routes/report.routes");
+const authRoutes = require("./routes/auth.routes");
+const userRoutes = require("./routes/user.routes");
+const adminRoutes = require("./routes/admin.routes");
+const fyersRoutes = require("./routes/fyers.routes");
 
-const { createApp } = require("./app");
-const { connectDB } = require("./config/db");
-const { env } = require("./config/env");
-const logger = require("./config/logger");
-const { startScheduler, stopScheduler } = require("./scheduler");
+const app = express();
+app.use(express.json());
+app.use(morgan("dev"));
 
-let server;
+// DB connect
+connectDB();
 
-async function bootstrap() {
+// serve frontend
+app.use(express.static(path.join(__dirname, "public")));
+
+// API routes
+app.use(express.json()); // <-- CRITICAL
+app.use(express.urlencoded({ extended: true })); // <-- good to have
+app.use("/m1", m1Routes);
+app.use("/m2", m2Routes);
+app.use("/trade", tradeRoutes);
+app.use("/report", reportRoutes);
+app.use("/auth", authRoutes);
+app.use("/user", userRoutes);
+app.use("/admin", adminRoutes);
+app.use("/fyers", fyersRoutes);
+
+//Testing Purpose - Live Tick Data Stream
+// server.js (or routes file)
+const m1Service = require("./services/m1.service"); // adjust path to match your project
+
+app.get("/api/socket-stream", (req, res) => {
   try {
-    await connectDB();
+    // Prefer exported snapshot if available
+    if (m1Service && typeof m1Service._getLtpSnapshot === "function") {
+      const snapshot = m1Service._getLtpSnapshot() || [];
+      return res.json(snapshot.slice(-50));
+    }
 
-    const app = createApp();
-    server = http.createServer(app);
+    // Fallback: try global.ltpMap (if you set that)
+    if (global.ltpMap && typeof global.ltpMap.entries === "function") {
+      const arr = Array.from(global.ltpMap.entries()).map(([symbol, ltp]) => ({
+        symbol,
+        ltp: Number(ltp),
+        ts: Date.now()
+      }));
+      return res.json(arr.slice(-50));
+    }
 
-    server.listen(env.PORT, () => {
-      logger.info(
-        { port: env.PORT, env: env.NODE_ENV },
-        `Server running on http://127.0.0.1:${env.PORT}`
-      );
-      if (env.ENABLE_SCHEDULER) {
-        startScheduler();
-      }
-    });
+    // No source found — return helpful dev error (500)
+    const msg = "No ltp snapshot available. Export _getLtpSnapshot() from m1 service or set global.ltpMap = ltpMap.";
+    console.warn("/api/socket-stream:", msg);
+    return res.status(500).json({ error: msg });
   } catch (err) {
-    logger.error({ err }, "Fatal startup error");
-    process.exit(1);
+    // log full stack for debugging
+    console.error("/api/socket-stream error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: String(err?.message || err) });
   }
-}
-
-function shutdown(signal) {
-  logger.info({ signal }, "Shutdown signal received");
-  stopScheduler();
-  if (server) {
-    server.close((err) => {
-      if (err) {
-        logger.error({ err }, "Error during server close");
-        process.exit(1);
-      }
-      logger.info("HTTP server closed");
-      process.exit(0);
-    });
-  } else {
-    process.exit(0);
-  }
-}
-
-process.on("unhandledRejection", (reason) => {
-  logger.error({ reason }, "Unhandled promise rejection");
 });
 
-process.on("uncaughtException", (err) => {
-  logger.error({ err }, "Uncaught exception");
-  shutdown("uncaughtException");
+
+
+// error handler
+app.use(errorHandler);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://127.0.0.1:${PORT}`);
+  console.log(`📊 Dashboard: http://127.0.0.1:${PORT}/dashboard.html`);
+  startScheduler();
 });
 
-["SIGTERM", "SIGINT"].forEach((signal) => {
-  process.once(signal, () => shutdown(signal));
-});
-
-bootstrap();
 

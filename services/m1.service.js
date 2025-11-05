@@ -9,22 +9,18 @@ const fy = require("./fyersSdk"); // market data + history
 const { getSocketToken } = require("./fyersAuth");
 const { todayCutoffTs, isBeforeCutoff, IST } = require("../utils/time");
 const M1Mover = require("../models/M1Mover");
-const { env } = require("../config/env");
 
 // ---------------------------
 // Config (tune via env)
  // default values chosen conservatively for production stability
 const CONFIG = {
-  BATCH_SIZE: Number(env.M1_BATCH_SIZE) || 200,
-  PREV_CLOSE_CONCURRENCY: Number(env.M1_PREV_CLOSE_CONCURRENCY) || 12,
-  DB_UPSERT_CONCURRENCY: Number(env.M1_DB_UPSERT_CONCURRENCY) || 12,
-  ROTATE_INTERVAL_MS: Number(env.M1_ROTATE_INTERVAL_MS) || 5000,
-  HEARTBEAT_INTERVAL_MS: Number(env.M1_HEARTBEAT_INTERVAL_MS) || 10000,
-  PREV_CLOSE_RETRY: Number(env.M1_PREV_CLOSE_RETRY) || 3,
-  PREV_CLOSE_RETRY_BASE_MS: Number(env.M1_PREV_CLOSE_RETRY_BASE_MS) || 500,
-  MOVER_THRESHOLD_PCT: Number(env.M1_MOVER_THRESHOLD_PCT) || 5,
-  SNAPSHOT_HOUR: Number(env.M1_SNAPSHOT_HOUR) || 10,
-  SNAPSHOT_MINUTE: Number(env.M1_SNAPSHOT_MINUTE) || 30,
+  BATCH_SIZE: Number(process.env.M1_BATCH_SIZE) || 200,
+  PREV_CLOSE_CONCURRENCY: Number(process.env.M1_PREV_CLOSE_CONCURRENCY) || 12,
+  DB_UPSERT_CONCURRENCY: Number(process.env.M1_DB_UPSERT_CONCURRENCY) || 12,
+  ROTATE_INTERVAL_MS: Number(process.env.M1_ROTATE_INTERVAL_MS) || 5000,
+  HEARTBEAT_INTERVAL_MS: Number(process.env.M1_HEARTBEAT_INTERVAL_MS) || 10000,
+  PREV_CLOSE_RETRY: Number(process.env.M1_PREV_CLOSE_RETRY) || 3,
+  PREV_CLOSE_RETRY_BASE_MS: Number(process.env.M1_PREV_CLOSE_RETRY_BASE_MS) || 500,
   SOCKET_TOKEN_MIN_LENGTH: 20 // quick sanity
 };
 
@@ -32,7 +28,6 @@ const CONFIG = {
 const BATCH_SIZE = CONFIG.BATCH_SIZE;
 const PREV_CLOSE_CONCURRENCY = CONFIG.PREV_CLOSE_CONCURRENCY;
 const DB_UPSERT_CONCURRENCY = CONFIG.DB_UPSERT_CONCURRENCY;
-const MOVER_THRESHOLD_PCT = CONFIG.MOVER_THRESHOLD_PCT;
 
 // ---------------------------
 // Internal engine state
@@ -52,9 +47,6 @@ let lastSubscriptionRotateTs = null;
 let rotationIntervalHandle = null;
 let heartbeatIntervalHandle = null;
 let autoStopTimeoutHandle = null;
-let snapshotTimeoutHandle = null;
-let snapshotCapturedAt = null;
-let snapshotDateKey = null;
 
 // socket helpers / guards
 let currentSubscribedBatch = [];
@@ -72,7 +64,7 @@ const COMPACT_FLUSH_MS = 900;
 // ---------------------------
 // ALERT / DEDUPE
 // ---------------------------
-const ALERT_THRESHOLD_PCT = Number(env.M1_ALERT_THRESHOLD_PCT) || 5; // percent threshold
+const ALERT_THRESHOLD_PCT = Number(process.env.M1_ALERT_THRESHOLD_PCT) || 5; // percent threshold
 const lastAlertPct = new Map(); // symbol -> last alerted pct (number)
 
 // ---------------------------
@@ -109,18 +101,6 @@ function backoffDelay(baseMs, attempt) {
   // jittered exponential backoff
   const jitter = Math.random() * baseMs;
   return Math.min(MAX_RECONNECT_DELAY_MS, Math.round(baseMs * Math.pow(2, attempt - 1) + jitter));
-}
-
-function todayDateKey() {
-  return DateTime.now().setZone(IST).toISODate();
-}
-
-function todayRangeIst() {
-  const now = DateTime.now().setZone(IST);
-  return {
-    start: now.startOf("day").toJSDate(),
-    end: now.endOf("day").toJSDate()
-  };
 }
 
 // ---------------------------
@@ -480,7 +460,7 @@ function rotateBatch() {
 // ---------------------------
 // STEP 4. MOVER CALCULATION
 // ---------------------------
-function computeMovers(thresholdPct = MOVER_THRESHOLD_PCT) {
+function computeMovers(thresholdPct = 5) {
   const movers = [];
 
   for (const sym of universeSymbols) {
@@ -505,89 +485,6 @@ function computeMovers(thresholdPct = MOVER_THRESHOLD_PCT) {
   return movers;
 }
 
-async function captureMoversSnapshot({ reason = "scheduled", force = false } = {}) {
-  const dateKey = todayDateKey();
-  const range = todayRangeIst();
-
-  if (!force && isBeforeCutoff()) {
-    return { ok: false, data: [], error: "Snapshot available only after 10:30 IST" };
-  }
-
-  if (!force && snapshotDateKey === dateKey && snapshotCapturedAt) {
-    const existing = await M1Mover.find({
-      capturedAt: { $gte: range.start, $lte: range.end }
-    })
-      .sort({ changePct: -1 })
-      .lean();
-    return { ok: true, alreadyCaptured: true, count: existing.length, data: existing };
-  }
-
-  try {
-    const movers = computeMovers(MOVER_THRESHOLD_PCT);
-    const now = new Date();
-    const { start, end } = range;
-
-    await M1Mover.deleteMany({ capturedAt: { $gte: start, $lte: end } });
-
-    if (movers.length > 0) {
-      const docs = movers.map((m) => ({
-        symbol: m.symbol,
-        prevClose: m.prevClose,
-        ltp: m.ltp,
-        changePct: m.changePct,
-        capturedAt: now
-      }));
-      await M1Mover.insertMany(docs, { ordered: false });
-      snapshotCapturedAt = Date.now();
-      snapshotDateKey = dateKey;
-      console.log(`[M1] Movers snapshot captured (${movers.length} symbols, reason=${reason})`);
-      return { ok: true, count: docs.length, data: docs };
-    }
-
-    snapshotCapturedAt = Date.now();
-    snapshotDateKey = dateKey;
-    console.log(`[M1] Movers snapshot captured (0 symbols, reason=${reason})`);
-    return { ok: true, count: 0, data: [] };
-  } catch (err) {
-    lastError = err?.message || String(err);
-    console.error("[M1] captureMoversSnapshot error:", err?.message || err);
-    throw err;
-  }
-}
-
-function scheduleMoverSnapshot() {
-  if (snapshotTimeoutHandle) {
-    clearTimeout(snapshotTimeoutHandle);
-    snapshotTimeoutHandle = null;
-  }
-
-  const now = DateTime.now().setZone(IST);
-  const target = now.set({
-    hour: CONFIG.SNAPSHOT_HOUR,
-    minute: CONFIG.SNAPSHOT_MINUTE,
-    second: 0,
-    millisecond: 0
-  });
-
-  const delayMs = target.diff(now, "milliseconds").milliseconds;
-
-  if (delayMs <= 0) {
-    captureMoversSnapshot({ reason: "post-start immediate" }).catch((err) => {
-      lastError = err?.message || String(err);
-      console.error("[M1] immediate snapshot failed:", err?.message || err);
-    });
-    return;
-  }
-
-  snapshotTimeoutHandle = setTimeout(() => {
-    snapshotTimeoutHandle = null;
-    captureMoversSnapshot({ reason: "scheduled" }).catch((err) => {
-      lastError = err?.message || String(err);
-      console.error("[M1] scheduled snapshot failed:", err?.message || err);
-    });
-  }, delayMs);
-}
-
 // ---------------------------
 // STEP 5. PUBLIC ENGINE ACTIONS
 // ---------------------------
@@ -609,13 +506,8 @@ async function startEngine() {
   // warmup prev closes (only symbols present)
   await warmupPrevCloses(universeSymbols);
 
-  snapshotCapturedAt = null;
-  snapshotDateKey = null;
-
   // connect socket
   await ensureSocketConnected();
-
-  scheduleMoverSnapshot();
 
   // rotation interval
   if (rotationIntervalHandle) clearInterval(rotationIntervalHandle);
@@ -661,10 +553,6 @@ async function stopEngine() {
     clearTimeout(autoStopTimeoutHandle);
     autoStopTimeoutHandle = null;
   }
-  if (snapshotTimeoutHandle) {
-    clearTimeout(snapshotTimeoutHandle);
-    snapshotTimeoutHandle = null;
-  }
 
   if (socket) {
     try {
@@ -681,42 +569,32 @@ async function stopEngine() {
   return { ok: true, msg: "stopped" };
 }
 
-async function getMovers({ refresh = false } = {}) {
-  const range = todayRangeIst();
-  const query = { capturedAt: { $gte: range.start, $lte: range.end } };
-
-  if (!refresh) {
-    const existing = await M1Mover.find(query).sort({ changePct: -1 }).lean();
-    if (existing.length > 0) {
-      return { ok: true, count: existing.length, data: existing };
-    }
-    if (isBeforeCutoff()) {
-      return { ok: false, data: [], error: "Movers snapshot available after 10:30 IST" };
-    }
-  } else if (refresh && isBeforeCutoff()) {
-    return { ok: false, data: [], error: "Cannot refresh movers before 10:30 IST" };
+async function getMovers() {
+  if (!engineOn) {
+    return { ok: false, data: [], error: "engine off" };
   }
 
-  try {
-    const captureRes = await captureMoversSnapshot({
-      reason: refresh ? "manual-refresh" : "on-demand",
-      force: refresh
-    });
+  const movers = computeMovers(5);
 
-    if (captureRes.ok && Array.isArray(captureRes.data)) {
-      return { ok: true, count: captureRes.data.length, data: captureRes.data };
-    }
+  // upsert movers in controlled parallelism
+  await asyncPool(
+    movers,
+    async (m) => {
+      try {
+        await M1Mover.findOneAndUpdate(
+          { symbol: m.symbol },
+          { ...m, capturedAt: new Date() },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.warn("[getMovers] DB upsert fail for", m.symbol, err?.message || err);
+        lastError = err?.message || String(err);
+      }
+    },
+    DB_UPSERT_CONCURRENCY
+  );
 
-    if (!captureRes.ok) {
-      return { ok: false, data: [], error: captureRes.error || "Snapshot unavailable" };
-    }
-  } catch (err) {
-    lastError = err?.message || String(err);
-    return { ok: false, data: [], error: lastError };
-  }
-
-  const latest = await M1Mover.find(query).sort({ changePct: -1 }).lean();
-  return { ok: true, count: latest.length, data: latest };
+  return { ok: true, count: movers.length, data: movers };
 }
 
 function getStatus() {
@@ -788,6 +666,5 @@ module.exports = {
   getStatus,
   // debug / admin helpers
   _getLtpSnapshot,
-  _getUniverse,
-  captureMoversSnapshot
+  _getUniverse
 };

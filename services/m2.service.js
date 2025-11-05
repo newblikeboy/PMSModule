@@ -107,14 +107,10 @@ async function fetchRecent5MinCandles(symbol) {
  * 3. Save to DB (M2Signal)
  * 4. Return structured result
  */
-async function scanRSIEntryZone(opts = {}) {
-  const refreshMovers = Boolean(opts.refreshMovers);
+async function scanRSIEntryZone() {
   // get movers from m1
-  const m1Result = await m1Service.getMovers({ refresh: refreshMovers });
+  const m1Result = await m1Service.getMovers();
   if (!m1Result || !m1Result.ok || !Array.isArray(m1Result.data) || m1Result.data.length === 0) {
-    if (m1Result && m1Result.error) {
-      console.info("[M2] getMovers response:", m1Result.error);
-    }
     return { ok: true, data: [] };
   }
 
@@ -162,9 +158,7 @@ async function scanRSIEntryZone(opts = {}) {
           rsi: numericRsi,
           inEntryZone: inZone,
           ltp: stock.ltp,
-          changePct: stock.changePct,
-          prevClose: stock.prevClose,
-          capturedAt: stock.capturedAt || null
+          changePct: stock.changePct
         }
       };
     } catch (err) {

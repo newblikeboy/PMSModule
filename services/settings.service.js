@@ -23,16 +23,7 @@ function setSetting(key, value) {
   return getSettings();
 }
 
-function getExecutionMode() {
-  const snapshot = getSettings();
-  if (snapshot.marketHalt) return "HALT";
-  if (snapshot.isLiveExecutionAllowed) return "LIVE";
-  if (snapshot.isPaperTradingActive) return "PAPER";
-  return "DISABLED";
-}
-
 module.exports = {
   getSettings,
-  setSetting,
-  getExecutionMode
+  setSetting
 };

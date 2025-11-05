@@ -4,19 +4,10 @@
 const PaperTrade = require("../models/PaperTrade");
 const m2Service = require("./m2.service"); // for RSI + LTP data
 const fy = require("./fyersSdk"); // for quotes() -> live LTP
-const settingsService = require("./settings.service");
-const angelOne = require("./angelOne.service");
-const { env } = require("../config/env");
-const logger = require("../config/logger");
 
 // Tunable concurrency values (safe defaults)
 const AUTOENTER_CONCURRENCY = 6;
 const CHECK_OPEN_CONCURRENCY = 8;
-const CONFIGURED_DEFAULT_QTY = Number(env.TRADE_DEFAULT_QTY);
-const DEFAULT_ORDER_QTY =
-  Number.isFinite(CONFIGURED_DEFAULT_QTY) && CONFIGURED_DEFAULT_QTY > 0
-    ? Math.round(CONFIGURED_DEFAULT_QTY)
-    : 1;
 
 /**
  * small concurrency pool: runs workerFn(item) for each item, at most `concurrency` in flight.
@@ -39,31 +30,6 @@ async function asyncPool(items, workerFn, concurrency = 5) {
   }
 
   return Promise.all(results);
-}
-
-function resolveExecutionMode() {
-  return settingsService.getExecutionMode();
-}
-
-function computeTargets(entryPrice) {
-  const base = Number(entryPrice);
-  if (!Number.isFinite(base)) {
-    throw new Error("Cannot compute target/stop without a valid entry price");
-  }
-  const target = Number((base * (1 + 1.5 / 100)).toFixed(2));
-  const stop = Number((base * (1 - 0.75 / 100)).toFixed(2));
-  return { target, stop };
-}
-
-function isLiveMode(mode) {
-  return mode === "LIVE";
-}
-
-function tagForNotes(mode, detail) {
-  if (mode === "LIVE") {
-    return `[LIVE] ${detail}`;
-  }
-  return `[PAPER] ${detail}`;
 }
 
 // helper: fetch live LTP for a symbol using fy.getQuotes()
@@ -126,7 +92,7 @@ async function fetchLTP(symbol) {
 
     return null;
   } catch (err) {
-    logger.error({ err, symbol }, "[tradeEngine] fetchLTP error");
+    console.error("[tradeEngine] fetchLTP error for", symbol, err?.message || err);
     return null;
   }
 }
@@ -140,27 +106,9 @@ async function fetchLTP(symbol) {
  * - We process signals in controlled parallelism to speed up network/DB calls.
  * - Before creating we re-check for an OPEN trade to reduce races.
  */
-async function autoEnterOnSignal(options = {}) {
-  const executionMode = resolveExecutionMode();
-
-  if (executionMode === "HALT") {
-    return { ok: true, created: [], msg: "market halt active" };
-  }
-
-  if (executionMode === "DISABLED") {
-    return { ok: true, created: [], msg: "trading disabled in settings" };
-  }
-
-  if (isLiveMode(executionMode) && !angelOne.isConfigured()) {
-    const error = "Angel One credentials/configuration missing";
-    logger.error({ error }, "[tradeEngine] Live trading unavailable");
-    return { ok: false, created: [], error };
-  }
-
-  const refreshMovers = Boolean(options.refreshMovers);
-
+async function autoEnterOnSignal() {
   // run a fresh scan (M2)
-  const scan = await m2Service.scanRSIEntryZone({ refreshMovers });
+  const scan = await m2Service.scanRSIEntryZone();
   if (!scan || !scan.ok || !Array.isArray(scan.data) || scan.data.length === 0) {
     return { ok: true, created: [], msg: "no signals" };
   }
@@ -185,70 +133,47 @@ async function autoEnterOnSignal(options = {}) {
         entryPrice = await fetchLTP(symbol);
       }
       if (entryPrice == null || !Number.isFinite(Number(entryPrice))) {
-        logger.warn({ symbol }, "[tradeEngine] skipping entry - no entry price");
+        // can't reliably enter without price
+        console.warn("[tradeEngine] skipping entry - no entry price for", symbol);
         return null;
       }
 
-      const qty = DEFAULT_ORDER_QTY;
+      const qty = 1; // configurable later if you want
 
-      // Re-check to avoid race while fetching price
+      const targetPrice = entryPrice * (1 + 1.5 / 100);
+      const stopPrice = entryPrice * (1 - 0.75 / 100);
+
+      // Re-check and create atomically-ish:
+      // We attempt a final findOne to see if an OPEN trade got created while we fetched LTP.
       const alreadyOpenBeforeCreate = await PaperTrade.findOne({ symbol, status: "OPEN" }).lean();
       if (alreadyOpenBeforeCreate) return null;
 
-      let brokerOrderId = null;
-      let executionEntryPrice = Number(entryPrice);
-
-      if (isLiveMode(executionMode)) {
-        try {
-          const orderRes = await angelOne.placeOrder({
-            symbol,
-            qty,
-            side: "BUY",
-            orderType: "MARKET",
-            productType: "INTRADAY",
-            price: executionEntryPrice,
-            tag: "RSI_AUTO_ENTRY"
-          });
-          brokerOrderId = orderRes.orderId || null;
-          if (orderRes.price != null && Number.isFinite(Number(orderRes.price))) {
-            executionEntryPrice = Number(orderRes.price);
-          }
-        } catch (err) {
-          logger.error({ err, symbol }, "[tradeEngine] LIVE entry failed");
-          return null;
-        }
-      }
-
-      const { target, stop } = computeTargets(executionEntryPrice);
-
       const tradeDoc = {
         symbol,
-        entryPrice: executionEntryPrice,
+        entryPrice,
         qty,
-        targetPrice: target,
-        stopPrice: stop,
+        targetPrice,
+        stopPrice,
         rsiAtEntry: sig.rsi,
         changePctAtEntry: sig.changePct,
-        executionMode,
-        brokerOrderId,
-        notes: tagForNotes(executionMode, "Auto-entry from RSI zone strategy")
+        notes: "Auto-entry from RSI zone strategy"
       };
 
       const trade = await PaperTrade.create(tradeDoc);
       return trade;
     } catch (err) {
-      logger.error({ err, symbol: sig?.symbol }, "[tradeEngine] autoEnter worker error");
+      console.error("[tradeEngine] autoEnter worker error for", sig?.symbol, err?.message || err);
       return null;
     }
   }
 
-  // process signals with controlled parallelism
+  // process signals with controlled concurrency
   const results = await asyncPool(signals, worker, AUTOENTER_CONCURRENCY);
 
   // filter created trades
   const createdTrades = results.filter(r => r != null);
 
-  return { ok: true, created: createdTrades, mode: executionMode };
+  return { ok: true, created: createdTrades };
 }
 
 /**
@@ -265,74 +190,43 @@ async function checkOpenTradesAndUpdate() {
     return { ok: true, closed: [] };
   }
 
+  const toClose = [];
+
+  // worker checks a trade and returns closed trade object if closed
   async function worker(tr) {
     try {
       if (!tr || !tr.symbol) return null;
-
       const ltp = await fetchLTP(tr.symbol);
       if (ltp == null || !Number.isFinite(Number(ltp))) return null;
-
-      const ltpNumber = Number(ltp);
 
       let shouldClose = false;
       let exitReason = "";
 
-      if (ltpNumber >= tr.targetPrice) {
+      if (ltp >= tr.targetPrice) {
         shouldClose = true;
         exitReason = "TARGET";
-      } else if (ltpNumber <= tr.stopPrice) {
+      } else if (ltp <= tr.stopPrice) {
         shouldClose = true;
         exitReason = "STOPLOSS";
       }
 
       if (!shouldClose) return null;
 
-      const mode = tr.executionMode || "PAPER";
-      let exitPrice = ltpNumber;
-      let brokerExitOrderId = null;
-
-      if (isLiveMode(mode)) {
-        if (!angelOne.isConfigured()) {
-          logger.error("[tradeEngine] cannot exit live trade - Angel One config missing");
-          return null;
-        }
-
-        try {
-          const exitRes = await angelOne.placeOrder({
-            symbol: tr.symbol,
-            qty: tr.qty,
-            side: "SELL",
-            orderType: "MARKET",
-            productType: "INTRADAY",
-            price: exitPrice,
-            tag: `RSI_${exitReason}_EXIT`
-          });
-          brokerExitOrderId = exitRes.orderId || null;
-          if (exitRes.price != null && Number.isFinite(Number(exitRes.price))) {
-            exitPrice = Number(exitRes.price);
-          }
-        } catch (err) {
-          logger.error({ err, symbol: tr.symbol }, "[tradeEngine] LIVE exit failed");
-          return null;
-        }
-      }
-
-      const pnlAbs = (exitPrice - tr.entryPrice) * tr.qty;
-      const pnlPct = ((exitPrice - tr.entryPrice) / tr.entryPrice) * 100;
+      const pnlAbs = (ltp - tr.entryPrice) * tr.qty;
+      const pnlPct = ((ltp - tr.entryPrice) / tr.entryPrice) * 100;
 
       // prepare updated doc
       return {
         _id: tr._id,
-        exitPrice,
+        exitPrice: ltp,
         exitTime: new Date(),
         pnlAbs,
         pnlPct,
         status: "CLOSED",
-        notes: tagForNotes(mode, exitReason),
-        brokerExitOrderId
+        notes: exitReason
       };
     } catch (err) {
-      logger.error({ err, symbol: tr?.symbol }, "[tradeEngine] checkOpen worker error");
+      console.error("[tradeEngine] checkOpen worker error for", tr?.symbol, err?.message || err);
       return null;
     }
   }
@@ -357,13 +251,12 @@ async function checkOpenTradesAndUpdate() {
             pnlAbs: c.pnlAbs,
             pnlPct: c.pnlPct,
             status: c.status,
-            notes: c.notes,
-            brokerExitOrderId: c.brokerExitOrderId ?? null
+            notes: c.notes
           },
           { new: true }
         );
       } catch (err) {
-        logger.error({ err, tradeId: c._id }, "[tradeEngine] failed to persist closed trade");
+        console.error("[tradeEngine] failed to persist closed trade", c._id, err?.message || err);
       }
     },
     CHECK_OPEN_CONCURRENCY
@@ -391,32 +284,7 @@ async function closeTradeManual(tradeId) {
   }
 
   const ltp = await fetchLTP(tr.symbol);
-  let exitPx = (ltp != null && Number.isFinite(Number(ltp))) ? Number(ltp) : tr.entryPrice;
-  let brokerExitOrderId = null;
-
-  if (isLiveMode(tr.executionMode)) {
-    if (!angelOne.isConfigured()) {
-      return { ok: false, error: "Angel One not configured for live exits" };
-    }
-
-    try {
-      const exitRes = await angelOne.placeOrder({
-        symbol: tr.symbol,
-        qty: tr.qty,
-        side: "SELL",
-        orderType: "MARKET",
-        productType: "INTRADAY",
-        price: exitPx,
-        tag: "MANUAL_EXIT"
-      });
-      brokerExitOrderId = exitRes.orderId || null;
-      if (exitRes.price != null && Number.isFinite(Number(exitRes.price))) {
-        exitPx = Number(exitRes.price);
-      }
-    } catch (err) {
-      return { ok: false, error: `Live exit failed: ${err?.message || err}` };
-    }
-  }
+  const exitPx = (ltp != null && Number.isFinite(Number(ltp))) ? ltp : tr.entryPrice;
 
   const pnlAbs = (exitPx - tr.entryPrice) * tr.qty;
   const pnlPct = ((exitPx - tr.entryPrice) / tr.entryPrice) * 100;
@@ -426,8 +294,7 @@ async function closeTradeManual(tradeId) {
   tr.pnlAbs = pnlAbs;
   tr.pnlPct = pnlPct;
   tr.status = "CLOSED";
-  tr.notes = tagForNotes(tr.executionMode || "PAPER", "MANUAL EXIT");
-  tr.brokerExitOrderId = brokerExitOrderId;
+  tr.notes = "MANUAL";
 
   await tr.save();
   return { ok: true, trade: tr };
