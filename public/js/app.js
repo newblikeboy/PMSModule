@@ -1,291 +1,608 @@
-(function(){
+(function () {
   const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const body = document.body;
 
-  // token auth
+  const PLAN_CONFIG = {
+    monthly: { label: "Monthly", displayAmount: "\u20B91,000" },
+    quarterly: { label: "Quarterly", displayAmount: "\u20B92,100" },
+    yearly: { label: "Yearly", displayAmount: "\u20B96,000" }
+  };
+
+  let currentUserProfile = null;
+
+  // ----------------------------------------
+  // Auth guard
+  // ----------------------------------------
   const token = localStorage.getItem("qp_token");
   if (!token) {
     window.location.href = "./index.html";
     return;
   }
-  function authHeaders(json=false){
-    const h = { "Authorization": "Bearer " + token };
-    if (json) h["Content-Type"] = "application/json";
-    return h;
-  }
 
-  // generic helpers
-  async function jgetAuth(url){
-    const r = await fetch(url, { headers: authHeaders() });
-    if (r.status === 401) {
-      localStorage.removeItem("qp_token");
-      window.location.href = "./index.html";
-      return { ok:false, error:"unauthorized" };
+  // ----------------------------------------
+  // Sidebar & view switching
+  // ----------------------------------------
+  const sidebar = $("#appSidebar");
+  const menuBtn = $("#appMenuBtn");
+  const sidebarClose = $("#appSidebarClose");
+  const sidebarOverlay = $("#appSidebarOverlay");
+  const navButtons = $$(".app-nav-item");
+  const views = $$(".app-view");
+
+  const isDesktop = () => window.matchMedia("(min-width: 1024px)").matches;
+
+  const openSidebar = () => {
+    if (!sidebar) return;
+    body.classList.add("sidebar-open");
+  };
+
+  const closeSidebar = () => {
+    body.classList.remove("sidebar-open");
+  };
+
+  menuBtn?.addEventListener("click", openSidebar);
+  sidebarClose?.addEventListener("click", closeSidebar);
+  sidebarOverlay?.addEventListener("click", closeSidebar);
+  window.addEventListener("resize", () => {
+    if (isDesktop()) closeSidebar();
+  });
+
+  const setActiveNav = (viewId) => {
+    navButtons.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.view === viewId);
+    });
+  };
+
+  const showView = (viewId) => {
+    views.forEach((view) => {
+      const isActive = view.id === viewId;
+      view.classList.toggle("active", isActive);
+    });
+    setActiveNav(viewId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (!isDesktop()) closeSidebar();
+  };
+
+  navButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const viewId = btn.dataset.view;
+      if (viewId) showView(viewId);
+    });
+  });
+
+  showView("overviewView");
+
+  // ----------------------------------------
+  // Profile dropdown & header actions
+  // ----------------------------------------
+  const profileToggle = $("#profileToggle");
+  const profileDropdown = $("#profileDropdown");
+  const profileInitial = $("#profileInitial");
+  const profileName = $("#profileName");
+
+  const closeProfileDropdown = () => profileDropdown?.classList.remove("open");
+
+  profileToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    profileDropdown?.classList.toggle("open");
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!profileDropdown || !profileToggle) return;
+    if (!profileDropdown.contains(event.target) && !profileToggle.contains(event.target)) {
+      closeProfileDropdown();
     }
-    return r.json();
-  }
-  async function jpostAuth(url, body){
-    const r = await fetch(url, {
+  });
+
+  const subscribeBtn = $("#subscribeBtn");
+  const upgradePlanBtn = $("#upgradePlanBtn");
+  const pricingModal = $("#pricingModal");
+  const pricingModalClose = $("#pricingModalClose");
+  const pricingModalMsg = $("#pricingModalMsg");
+  const pricingButtons = $$(".pricing-select");
+  const startAngelLoginBtn = $("#startAngelLoginBtn");
+  const angelMarginForm = $("#angelMarginForm");
+  const angelMarginSaveBtn = $("#angelMarginSaveBtn");
+  const angelLiveToggleBtn = $("#angelLiveToggleBtn");
+
+  const openPricingModal = (trigger) => {
+    if (trigger?.disabled) return;
+    pricingModal?.classList.add("open");
+    if (pricingModalMsg) pricingModalMsg.textContent = "";
+  };
+
+  const closePricingModal = () => {
+    pricingModal?.classList.remove("open");
+  };
+
+  subscribeBtn?.addEventListener("click", () => openPricingModal(subscribeBtn));
+  upgradePlanBtn?.addEventListener("click", () => openPricingModal(upgradePlanBtn));
+  pricingModalClose?.addEventListener("click", closePricingModal);
+  pricingModal?.addEventListener("click", (event) => {
+    if (event.target === pricingModal) closePricingModal();
+  });
+
+  pricingButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const plan = btn.dataset.plan;
+      if (!plan) return;
+
+      const cfg = PLAN_CONFIG[plan];
+      if (pricingModalMsg && cfg) {
+        pricingModalMsg.style.color = "var(--app-text-soft)";
+        pricingModalMsg.textContent = `Processing ${cfg.label} plan (${cfg.displayAmount}).`;
+      }
+
+      launchCheckout(plan);
+    });
+  });
+
+  $("#profileOption")?.addEventListener("click", () => {
+    closeProfileDropdown();
+    window.location.href = "/profile";
+  });
+
+  $("#passwordOption")?.addEventListener("click", () => {
+    closeProfileDropdown();
+    window.location.href = "/change-password";
+  });
+
+  const logout = () => {
+    localStorage.removeItem("qp_token");
+    window.location.href = "./index.html";
+  };
+
+  $("#logoutOption")?.addEventListener("click", () => {
+    closeProfileDropdown();
+    logout();
+  });
+
+  startAngelLoginBtn?.addEventListener("click", async () => {
+    if (startAngelLoginBtn.disabled) return;
+    const originalText = startAngelLoginBtn.textContent;
+    startAngelLoginBtn.disabled = true;
+    startAngelLoginBtn.textContent = "Opening...";
+
+    const resp = await jgetAuth("/user/angel/login-link");
+    if (!resp || !resp.ok) {
+      alert(resp?.error || "Unable to generate Angel login link");
+    } else {
+      window.open(resp.url, "_blank", "width=520,height=680");
+    }
+
+    startAngelLoginBtn.textContent = originalText;
+    startAngelLoginBtn.disabled = false;
+  });
+
+  angelMarginForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const slider = $("#angelMarginInput");
+    if (!slider) return;
+
+    const pct = Number(slider.value);
+    if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+      alert("Enter a value between 0 and 100.");
+      return;
+    }
+
+    if (angelMarginSaveBtn) {
+      angelMarginSaveBtn.disabled = true;
+      angelMarginSaveBtn.textContent = "Saving...";
+    }
+
+    const msgEl = $("#angelMarginMsg");
+    const resp = await jpostAuth("/user/angel/settings", { allowedMarginPercent: pct });
+
+    if (!resp.ok) {
+      if (msgEl) {
+        msgEl.textContent = resp.error || "Failed to update margin";
+        msgEl.style.color = "var(--app-danger)";
+      }
+    } else {
+      updateAngelUI(resp.angel || {});
+      if (msgEl) {
+        msgEl.textContent = "Margin preference saved.";
+        msgEl.style.color = "var(--app-success)";
+      }
+    }
+
+    if (angelMarginSaveBtn) {
+      angelMarginSaveBtn.disabled = false;
+      angelMarginSaveBtn.textContent = "Save Risk Budget";
+    }
+  });
+
+  angelLiveToggleBtn?.addEventListener("click", async () => {
+    if (angelLiveToggleBtn.disabled) return;
+    const currentState = $("#angelLiveStatus")?.dataset.state === "on";
+    const resp = await jpostAuth("/user/angel/settings", { liveEnabled: !currentState });
+    if (!resp.ok) {
+      alert(resp.error || "Failed to update live status");
+      return;
+    }
+    updateAngelUI(resp.angel || {});
+    await loadPlanStatus();
+  });
+
+  // ----------------------------------------
+  // Helper utilities
+  // ----------------------------------------
+  const authHeaders = (json = false) => {
+    const headers = { Authorization: "Bearer " + token };
+    if (json) headers["Content-Type"] = "application/json";
+    return headers;
+  };
+
+  const jgetAuth = async (url) => {
+    const res = await fetch(url, { headers: authHeaders() });
+    if (res.status === 401) {
+      logout();
+      return { ok: false };
+    }
+    return res.json();
+  };
+
+  const jpostAuth = async (url, body) => {
+    const res = await fetch(url, {
       method: "POST",
       headers: authHeaders(true),
       body: JSON.stringify(body || {})
     });
-    if (r.status === 401) {
-      localStorage.removeItem("qp_token");
-      window.location.href = "./index.html";
-      return { ok:false, error:"unauthorized" };
+    if (res.status === 401) {
+      logout();
+      return { ok: false };
     }
-    return r.json();
+    return res.json();
+  };
+
+  const formatCurrency = (val) => {
+    const amount = Number(val ?? 0);
+    if (Number.isNaN(amount)) return "\u20B90.00";
+    return `\u20B9${amount.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+  };
+
+  // Footer year
+  const yearNowEl = $("#yearNow");
+  if (yearNowEl) yearNowEl.textContent = new Date().getFullYear();
+
+  // ----------------------------------------
+  // Razorpay checkout
+  // ----------------------------------------
+  async function launchCheckout(planType) {
+    if (!PLAN_CONFIG[planType]) {
+      pricingModalMsg && (pricingModalMsg.textContent = "Unknown plan selected.");
+      return;
+    }
+
+    if (pricingModalMsg) {
+      pricingModalMsg.style.color = "var(--app-text-soft)";
+      pricingModalMsg.textContent = "Creating payment intent...";
+    }
+
+    try {
+      const intent = await jpostAuth("/user/plan/upgrade-intent", { planType });
+      if (!intent || !intent.ok) {
+        throw new Error(intent?.error || "Unable to start checkout");
+      }
+
+      if (typeof Razorpay === "undefined") {
+        throw new Error("Razorpay script not loaded. Check your network or ad-block settings.");
+      }
+
+      const amountDisplay = (intent.amount / 100).toFixed(2);
+      if (pricingModalMsg) {
+        pricingModalMsg.textContent = `Launching Razorpay for ?${amountDisplay}...`;
+      }
+
+      const options = {
+        key: intent.keyId,
+        amount: intent.amount,
+        currency: intent.currency,
+        name: "QuantPulse",
+        description: `${PLAN_CONFIG[planType].label} Plan`,
+        order_id: intent.orderId,
+        theme: { color: "#3f5fff" },
+        prefill: {
+          name: currentUserProfile?.name || "",
+          email: currentUserProfile?.email || "",
+          contact: currentUserProfile?.phone || ""
+        },
+        handler: async (response) => {
+          if (pricingModalMsg) {
+            pricingModalMsg.style.color = "var(--app-text-soft)";
+            pricingModalMsg.textContent = "Verifying payment...";
+          }
+
+          const confirm = await jpostAuth("/user/plan/confirm", {
+            ...response,
+            planType
+          });
+
+          if (!confirm || !confirm.ok) {
+            const msg = confirm?.error || "Payment verification failed";
+            if (pricingModalMsg) {
+              pricingModalMsg.style.color = "var(--app-danger)";
+              pricingModalMsg.textContent = msg;
+            }
+            return;
+          }
+
+          if (pricingModalMsg) {
+            pricingModalMsg.style.color = "var(--app-success)";
+            pricingModalMsg.textContent = "Payment successful. Activating your plan...";
+          }
+
+          await loadPlanStatus();
+          await loadProfile();
+          closePricingModal();
+        }
+      };
+
+      const rzp = new Razorpay(options);
+      rzp.on("payment.failed", (err) => {
+        if (pricingModalMsg) {
+          pricingModalMsg.style.color = "var(--app-danger)";
+          pricingModalMsg.textContent = err?.error?.description || "Payment failed. Please try again.";
+        }
+      });
+      rzp.open();
+    } catch (error) {
+      console.error("Razorpay checkout error:", error);
+      if (pricingModalMsg) {
+        pricingModalMsg.style.color = "var(--app-danger)";
+        pricingModalMsg.textContent = error.message || "Unable to start checkout";
+      }
+    }
   }
 
-  // footer year
-  const yearNowEl = $('#yearNow');
-  if (yearNowEl) {
-    yearNowEl.textContent = new Date().getFullYear();
-  }
-
-  // logout
-  $('#logoutBtn')?.addEventListener('click', ()=>{
-    localStorage.removeItem("qp_token");
-    window.location.href = "./index.html";
-  });
-
-  //-------------------------------------------------
-  // 1. SUBSCRIPTION / PLAN STATUS
-  //-------------------------------------------------
-  async function loadPlanStatus(){
-    const planRes = await jgetAuth('/user/plan/status');
+  // ----------------------------------------
+  // Plan status
+  // ----------------------------------------
+  async function loadPlanStatus() {
+    const planRes = await jgetAuth("/user/plan/status");
     if (!planRes || !planRes.ok) return;
 
-    const plan = planRes.plan; // "trial", "paid", "admin"
+    const plan = (planRes.plan || "trial").toLowerCase();
+    const planTier = (planRes.planTier || plan).toLowerCase();
+    const tierLabel =
+      PLAN_CONFIG[planTier]?.label || planTier.charAt(0).toUpperCase() + planTier.slice(1);
+    const isPaid = plan === "paid" || plan === "admin";
+    const badgeLabel = isPaid ? tierLabel : "Trial";
 
-    // Update header bar badge
-    $('#userPlan') && ($('#userPlan').textContent = "Plan: " + plan);
+    $("#userPlan") && ($("#userPlan").textContent = `Plan: ${badgeLabel}`);
+    $("#sidebarPlanPill") && ($("#sidebarPlanPill").textContent = `Plan: ${badgeLabel}`);
 
-    // Update subscription card
-    const planNameEl = $('#planName');
-    const planHintEl = $('#planHint');
-    const upgradeBtn = $('#upgradePlanBtn');
+    const planNameEl = $("#planName");
+    const planHintEl = $("#planHint");
 
-    if (plan === "paid" || plan === "admin") {
-      planNameEl && (planNameEl.textContent = "Paid Plan");
-      planHintEl && (planHintEl.textContent = "You have Paid access. Automation unlocks.");
-      if (upgradeBtn){
-        upgradeBtn.textContent = "You're Upgraded ✓";
-        upgradeBtn.disabled = true;
+    if (planNameEl) {
+      if (plan === "admin") {
+        planNameEl.textContent = `Admin - ${tierLabel}`;
+      } else if (isPaid) {
+        planNameEl.textContent = `Paid - ${tierLabel}`;
+      } else {
+        planNameEl.textContent = "Trial (Upgrade Available)";
       }
-    } else {
-      planNameEl && (planNameEl.textContent = "Trial (Upgrade Available)");
-      planHintEl && (planHintEl.textContent = "Upgrade to unlock automation & broker execution (coming soon).");
-      if (upgradeBtn){
-        upgradeBtn.textContent = "Upgrade Plan";
-        upgradeBtn.disabled = false;
-      }
+    }
+
+    if (planHintEl) {
+      planHintEl.textContent = isPaid
+        ? "You have full access. Angel live execution can be enabled."
+        : "Upgrade to unlock automation and live Angel execution.";
+    }
+
+    if (subscribeBtn) {
+      subscribeBtn.textContent = isPaid ? "Plan Active" : "Subscribe Now";
+      subscribeBtn.disabled = isPaid;
+    }
+
+    if (upgradePlanBtn) {
+      upgradePlanBtn.textContent = isPaid ? "Plan Active" : "Upgrade Plan";
+      upgradePlanBtn.disabled = isPaid;
     }
   }
 
-  // handle Upgrade Plan click
-  $('#upgradePlanBtn')?.addEventListener('click', async ()=>{
-    // Step 1: ask backend to create a payment intent
-    const intent = await jpostAuth('/user/plan/upgrade-intent', {});
-    console.log("upgrade-intent:", intent);
-
-    if (!intent.ok) {
-      alert(intent.error || "Could not start upgrade");
-      return;
+  // ----------------------------------------
+  // Profile / Angel state
+  // ----------------------------------------
+  function updateAngelUI(angel) {
+    const connected = !!angel.brokerConnected;
+    const connBadge = $("#angelConnBadge");
+    if (connBadge) {
+      connBadge.textContent = connected ? "Angel Linked" : "Angel Not Linked";
+      connBadge.classList.toggle("good", connected);
+      connBadge.classList.toggle("danger", !connected);
     }
 
-    if (intent.alreadyPaid) {
-      alert("Already on Paid plan");
-      await loadPlanStatus();
-      return;
+    let marginPct = Math.round((angel.allowedMarginPct ?? 0.5) * 100);
+    const percentFromServer = Number(angel.allowedMarginPercent);
+    if (!Number.isNaN(percentFromServer)) {
+      marginPct = percentFromServer;
     }
 
-    // Normally: redirect to Razorpay/Stripe checkout using intent.paymentRef.
-    // MVP: we instantly confirm as if payment happened.
+    $("#angelMarginValue") && ($("#angelMarginValue").textContent = `${marginPct}%`);
+    const marginInput = $("#angelMarginInput");
+    if (marginInput && Number.isFinite(marginPct)) marginInput.value = String(marginPct);
 
-    const confirm = await jpostAuth('/user/plan/confirm', {
-      paymentRef: intent.paymentRef
-    });
-    console.log("upgrade-confirm:", confirm);
-
-    if (!confirm.ok) {
-      alert(confirm.error || "Payment confirmation failed");
-      return;
+    const liveEnabled = !!angel.liveEnabled;
+    const liveStatus = $("#angelLiveStatus");
+    if (liveStatus) {
+      liveStatus.textContent = liveEnabled ? "Live ON" : "Live OFF";
+      liveStatus.dataset.state = liveEnabled ? "on" : "off";
+      liveStatus.classList.toggle("good", liveEnabled);
+      liveStatus.classList.toggle("danger", !liveEnabled);
     }
 
-    // Refresh UI
-    await loadPlanStatus();
-    await loadProfile();
+    const liveBtn = $("#angelLiveToggleBtn");
+    if (liveBtn) {
+      liveBtn.textContent = liveEnabled ? "Disable Live" : "Enable Live";
+      liveBtn.disabled = !connected;
+    }
 
-    alert("You're now on Paid Plan ✅");
-  });
-
-
-  //-------------------------------------------------
-  // 2. PROFILE (plan, broker, automation)
-  //-------------------------------------------------
-  async function loadProfile(){
-    const p = await jgetAuth('/user/profile');
-    if (!p || !p.ok) return;
-
-    // broker status text
-    const brokerStr = p.user.broker?.connected
-      ? (p.user.broker.brokerName || "Broker Connected")
-      : "Not Connected";
-
-    $('#userBroker')  && ($('#userBroker').textContent = "Broker: " + brokerStr);
-    $('#brokerStatus')&& ($('#brokerStatus').textContent = brokerStr);
-
-    // automation toggle reflect actual state
-    $('#autoMode')    && ($('#autoMode').textContent = p.user.autoTradingEnabled ? "ON" : "OFF");
-    const toggleBtn = $('#toggleAutoBtn');
-    if (toggleBtn) {
-      toggleBtn.textContent = p.user.autoTradingEnabled
-        ? "Disable Auto Trading"
-        : "Enable Auto Trading";
+    const marginMsg = $("#angelMarginMsg");
+    if (marginMsg) {
+      marginMsg.textContent = "Live Angel orders will use at most this percentage of your available margin.";
+      marginMsg.style.color = "var(--app-text-soft)";
     }
   }
 
+  async function loadProfile() {
+    const profile = await jgetAuth("/user/profile");
+    if (!profile || !profile.ok) return;
 
-  //-------------------------------------------------
-  // 3. SIGNALS TABLE (Today's Opportunities)
-  //-------------------------------------------------
-  async function loadSignals(){
-    const resp = await jgetAuth('/user/signals'); // {ok, data:[...]}
-    const body = $('#signalsTableBody');
-    body.innerHTML = "";
+    const user = profile.user || {};
+    currentUserProfile = user;
 
-    if (!resp || !resp.ok){
-      body.innerHTML = `<tr><td colspan="5">No data / error</td></tr>`;
+    const brokerConnected = !!user.broker?.connected;
+    const brokerName = user.broker?.brokerName || "Not Connected";
+
+    $("#userBroker") && ($("#userBroker").textContent = "Broker: " + brokerName);
+    $("#brokerStatus") && ($("#brokerStatus").textContent = brokerConnected ? brokerName : "Not Connected");
+    $("#sidebarBrokerPill") && ($("#sidebarBrokerPill").textContent = "Broker: " + brokerName);
+
+    const autoEnabled = !!user.autoTradingEnabled;
+    $("#autoMode") && ($("#autoMode").textContent = autoEnabled ? "ON" : "OFF");
+    const autoBtn = $("#toggleAutoBtn");
+    if (autoBtn) autoBtn.textContent = autoEnabled ? "Disable Auto Trading" : "Enable Auto Trading";
+
+    const displayName = (user.name || user.email || "Account").trim();
+    const firstName = displayName.split(" ")[0];
+    const initial = (displayName.charAt(0) || "U").toUpperCase();
+    profileName && (profileName.textContent = firstName);
+    profileInitial && (profileInitial.textContent = initial);
+
+    updateAngelUI(user.angel || {});
+  }
+
+  // ----------------------------------------
+  // Signals / report / trades
+  // ----------------------------------------
+  async function loadSignals() {
+    const resp = await jgetAuth("/user/signals");
+    const tableBody = $("#signalsTableBody");
+    if (!tableBody) return;
+
+    tableBody.innerHTML = "";
+    if (!resp || !resp.ok) {
+      tableBody.innerHTML = `<tr><td colspan="5">No data / error</td></tr>`;
       return;
     }
 
-    const actionable = (resp.data || []).filter(r => r.inEntryZone);
-    if (!actionable.length){
-      body.innerHTML = `<tr><td colspan="5">No active entries right now</td></tr>`;
+    const actionable = (resp.data || []).filter((row) => row.inEntryZone);
+    if (!actionable.length) {
+      tableBody.innerHTML = `<tr><td colspan="5">No active entries right now</td></tr>`;
       return;
     }
 
-    actionable.forEach(sig => {
-      const entry = Number(sig.ltp || 0);
-      const target = entry ? (entry * (1 + 1.5/100)) : 0;
-      const stop   = entry ? (entry * (1 - 0.75/100)) : 0;
-
-      const tr = document.createElement('tr');
+    actionable.forEach((row) => {
+      const entry = Number(row.ltp || 0);
+      const target = entry * 1.015;
+      const stop = entry * 0.9925;
+      const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${sig.symbol}</td>
-        <td>₹${entry ? entry.toFixed(2) : "--"}</td>
-        <td>₹${target ? target.toFixed(2) : "--"}</td>
-        <td>₹${stop ? stop.toFixed(2) : "--"}</td>
+        <td>${row.symbol}</td>
+        <td>${formatCurrency(entry)}</td>
+        <td>${formatCurrency(target)}</td>
+        <td>${formatCurrency(stop)}</td>
         <td><button class="app-act-btn" disabled>Auto Trade (Soon)</button></td>
       `;
-      body.appendChild(tr);
+      tableBody.appendChild(tr);
     });
   }
 
+  async function loadDailyReport() {
+    const rep = await jgetAuth("/user/report-today");
+    const closedEl = $("#repClosed");
+    const wlEl = $("#repWL");
+    const pnlEl = $("#repPnL");
+    const bestEl = $("#repBest");
 
-  //-------------------------------------------------
-  // 4. DAILY REPORT STATS
-  //-------------------------------------------------
-  async function loadDailyReport(){
-    const rep = await jgetAuth('/user/report-today'); // {ok, summary,...}
-    const elClosed = $('#repClosed');
-    const elWL = $('#repWL');
-    const elPnL = $('#repPnL');
-    const elBest = $('#repBest');
-
-    if (!rep || !rep.ok){
-      elClosed && (elClosed.textContent = "--");
-      elWL && (elWL.textContent = "--");
-      elPnL && (elPnL.textContent = "--");
-      elBest && (elBest.textContent = "--");
+    if (!rep || !rep.ok) {
+      closedEl && (closedEl.textContent = "--");
+      wlEl && (wlEl.textContent = "--");
+      pnlEl && (pnlEl.textContent = "--");
+      bestEl && (bestEl.textContent = "--");
       return;
     }
 
-    const s = rep.summary;
-    elClosed && (elClosed.textContent = s.closedTrades ?? 0);
-    elWL && (elWL.textContent = (s.wins ?? 0) + " / " + (s.losses ?? 0));
+    const s = rep.summary || {};
+    closedEl && (closedEl.textContent = s.closedTrades ?? 0);
+    wlEl && (wlEl.textContent = `${s.wins ?? 0} / ${s.losses ?? 0}`);
 
-    if (elPnL){
-      const pnl = (s.grossPnLAbs ?? 0).toFixed(2);
-      elPnL.textContent = "₹" + pnl;
-      elPnL.style.color = (s.grossPnLAbs ?? 0) >= 0 ? "var(--good)" : "#d11f4a";
+    if (pnlEl) {
+      const pnl = Number(s.grossPnLAbs ?? 0);
+      pnlEl.textContent = formatCurrency(pnl);
+      pnlEl.style.color = pnl >= 0 ? "var(--app-success)" : "var(--app-danger)";
     }
 
-    if (elBest){
-      if (s.bestTrade){
-        elBest.textContent = `${s.bestTrade.symbol} (₹${(s.bestTrade.pnlAbs ?? 0).toFixed(2)})`;
+    if (bestEl) {
+      if (s.bestTrade) {
+        bestEl.textContent = `${s.bestTrade.symbol} (${formatCurrency(s.bestTrade.pnlAbs ?? 0)})`;
       } else {
-        elBest.textContent = "--";
+        bestEl.textContent = "--";
       }
     }
   }
 
+  async function loadTrades() {
+    const result = await jgetAuth("/user/trades");
+    const tableBody = $("#tradesTableBody");
+    if (!tableBody) return;
 
-  //-------------------------------------------------
-  // 5. OPEN TRADES TABLE
-  //-------------------------------------------------
-  async function loadTrades(){
-    const resp = await jgetAuth('/user/trades'); // {ok, trades:[...]}
-    const body = $('#tradesTableBody');
-    body.innerHTML = "";
-
-    if (!resp || !resp.ok){
-      body.innerHTML = `<tr><td colspan="6">No data / error</td></tr>`;
+    tableBody.innerHTML = "";
+    if (!result || !result.ok) {
+      tableBody.innerHTML = `<tr><td colspan="6">No data / error</td></tr>`;
       return;
     }
 
-    const openTrades = (resp.trades || []).filter(t => t.status === "OPEN");
-    if (!openTrades.length){
-      body.innerHTML = `<tr><td colspan="6">No open trades</td></tr>`;
+    const trades = result.trades || [];
+    if (!trades.length) {
+      tableBody.innerHTML = `<tr><td colspan="6">No trades yet</td></tr>`;
       return;
     }
 
-    openTrades.forEach(trade=>{
-      const tr = document.createElement('tr');
+    trades.forEach((trade) => {
+      const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${trade.symbol}</td>
-        <td>${trade.qty}</td>
-        <td>₹${Number(trade.entryPrice).toFixed(2)}</td>
-        <td>₹${Number(trade.targetPrice).toFixed(2)}</td>
-        <td>₹${Number(trade.stopPrice).toFixed(2)}</td>
+        <td>${trade.quantity ?? "--"}</td>
+        <td>${formatCurrency(trade.entryPrice)}</td>
+        <td>${formatCurrency(trade.targetPrice)}</td>
+        <td>${formatCurrency(trade.stopPrice)}</td>
         <td>${trade.status}</td>
       `;
-      body.appendChild(tr);
+      tableBody.appendChild(tr);
     });
   }
 
+  // ----------------------------------------
+  // Broker modal (manual credentials)
+  // ----------------------------------------
+  const brokerModal = $("#brokerModal");
+  const openBrokerModalBtn = $("#openBrokerModalBtn");
+  const closeBrokerModalBtn = $("#closeBrokerModalBtn");
+  const brokerForm = $("#brokerForm");
+  const brokerMsg = $("#brokerMsg");
+  const brokerSubmitBtn = $("#brokerSubmitBtn");
 
-  //-------------------------------------------------
-  // 6. BROKER MODAL (connect/update broker creds)
-  //-------------------------------------------------
-  const brokerModal = $('#brokerModal');
-  const openBrokerModalBtn = $('#openBrokerModalBtn');
-  const closeBrokerModalBtn = $('#closeBrokerModalBtn');
-  const brokerForm = $('#brokerForm');
-  const brokerMsg = $('#brokerMsg');
-  const brokerSubmitBtn = $('#brokerSubmitBtn');
-
-  function openBrokerModal(){
-    if (brokerModal) brokerModal.style.display = "flex";
-  }
-  function closeBrokerModal(){
-    if (brokerModal) brokerModal.style.display = "none";
-  }
+  const openBrokerModal = () => brokerModal && (brokerModal.style.display = "flex");
+  const closeBrokerModal = () => brokerModal && (brokerModal.style.display = "none");
 
   openBrokerModalBtn?.addEventListener("click", openBrokerModal);
   closeBrokerModalBtn?.addEventListener("click", closeBrokerModal);
-
-  brokerModal?.addEventListener("click", (e)=>{
-    if (e.target === brokerModal) {
-      closeBrokerModal();
-    }
+  brokerModal?.addEventListener("click", (event) => {
+    if (event.target === brokerModal) closeBrokerModal();
   });
 
-  brokerForm?.addEventListener("submit", async (e)=>{
-    e.preventDefault();
+  brokerForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-    if (brokerSubmitBtn){
+    if (brokerSubmitBtn) {
       brokerSubmitBtn.disabled = true;
       brokerSubmitBtn.textContent = "Saving...";
     }
@@ -299,78 +616,73 @@
       refreshToken: fd.get("refreshToken")
     };
 
-    const resp = await jpostAuth('/user/broker/connect', payload);
-    console.log("broker connect resp", resp);
-
-    if (!resp.ok){
-      if (brokerMsg){
-        brokerMsg.textContent = resp.error || "Failed to save";
+    const resp = await jpostAuth("/user/broker/connect", payload);
+    if (!resp.ok) {
+      if (brokerMsg) {
+        brokerMsg.textContent = resp.error || "Failed to save credentials.";
         brokerMsg.style.color = "#d11f4a";
       }
-      brokerSubmitBtn.disabled = false;
-      brokerSubmitBtn.textContent = "Save Broker →";
+      if (brokerSubmitBtn) {
+        brokerSubmitBtn.textContent = "Save Broker";
+        brokerSubmitBtn.disabled = false;
+      }
       return;
     }
 
-    if (brokerMsg){
+    if (brokerMsg) {
       brokerMsg.textContent = "Broker connected (paper mode).";
-      brokerMsg.style.color = "var(--good)";
+      brokerMsg.style.color = "var(--app-success)";
     }
-    brokerSubmitBtn.textContent = "Saved ✓";
+
+    if (brokerSubmitBtn) {
+      brokerSubmitBtn.textContent = "Saved";
+      setTimeout(() => {
+        brokerSubmitBtn.textContent = "Save Broker";
+        brokerSubmitBtn.disabled = false;
+        closeBrokerModal();
+      }, 800);
+    }
 
     await loadProfile();
     await loadPlanStatus();
-
-    setTimeout(()=>{
-      closeBrokerModal();
-      brokerSubmitBtn.disabled = false;
-      brokerSubmitBtn.textContent = "Save Broker →";
-    }, 800);
   });
 
-
-  //-------------------------------------------------
-  // 7. TOGGLE AUTOMATION (ON/OFF)
-  //-------------------------------------------------
-  $('#toggleAutoBtn')?.addEventListener("click", async ()=>{
-    const curr = ($('#autoMode')?.textContent || "OFF").trim().toUpperCase();
-    const wantEnable = curr !== "ON";
-
-    const resp = await jpostAuth('/user/broker/automation', { enable: wantEnable });
-    if (!resp.ok){
+  // ----------------------------------------
+  // Automation toggle
+  // ----------------------------------------
+  $("#toggleAutoBtn")?.addEventListener("click", async () => {
+    const current = ($("#autoMode")?.textContent || "OFF").trim().toUpperCase();
+    const resp = await jpostAuth("/user/broker/automation", { enable: current !== "ON" });
+    if (!resp.ok) {
       alert(resp.error || "Failed to update automation");
       return;
     }
-
     await loadProfile();
     await loadPlanStatus();
   });
 
+  // ----------------------------------------
+  // Refresh buttons
+  // ----------------------------------------
+  $("#btnRefreshSignals")?.addEventListener("click", loadSignals);
+  $("#btnRefreshReport")?.addEventListener("click", loadDailyReport);
+  $("#btnRefreshTrades")?.addEventListener("click", loadTrades);
 
-  //-------------------------------------------------
-  // REFRESH BUTTONS
-  //-------------------------------------------------
-  $('#btnRefreshSignals')?.addEventListener('click', loadSignals);
-  $('#btnRefreshReport')?.addEventListener('click', loadDailyReport);
-  $('#btnRefreshTrades')?.addEventListener('click', loadTrades);
-
-
-  //-------------------------------------------------
-  // INITIAL LOAD SEQUENCE
-  //-------------------------------------------------
+  // ----------------------------------------
+  // Initial load & polling
+  // ----------------------------------------
   loadPlanStatus();
   loadProfile();
   loadSignals();
   loadDailyReport();
   loadTrades();
 
-  // re-poll every 30s
-  setInterval(()=>{
+  setInterval(() => {
     loadPlanStatus();
     loadProfile();
     loadSignals();
     loadDailyReport();
     loadTrades();
   }, 30000);
-
 })();
+

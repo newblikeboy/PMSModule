@@ -1,888 +1,570 @@
-(function () {
-  const $ = sel => document.querySelector(sel);
-  const $$ = sel => Array.from(document.querySelectorAll(sel));
+(() => {
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // ---- Auth guard ----
+  // -------------------------------
+  // Auth guard
+  // -------------------------------
   const token = localStorage.getItem("qp_token");
   if (!token) {
     window.location.href = "./admin-login.html";
     return;
   }
 
-  // attach Authorization header for admin-only backend routes
-  function authHeaders(json = false) {
-    const h = { "Authorization": "Bearer " + token };
-    if (json) h["Content-Type"] = "application/json";
-    return h;
-  }
+  const authHeaders = (json = false) => {
+    const headers = { Authorization: "Bearer " + token };
+    if (json) headers["Content-Type"] = "application/json";
+    return headers;
+  };
 
   async function jgetAuth(url) {
-    const r = await fetch(url, { headers: authHeaders() });
-    if (r.status === 401 || r.status === 403) {
+    const res = await fetch(url, { headers: authHeaders() });
+    if (res.status === 401 || res.status === 403) {
       alert("Not authorized. Admin only.");
       localStorage.removeItem("qp_token");
       window.location.href = "./admin-login.html";
-      return { ok: false, error: "unauthorized" };
+      return { ok: false };
     }
-    return r.json();
+    return res.json();
   }
 
   async function jpostAuth(url, body) {
-    const r = await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: authHeaders(true),
       body: JSON.stringify(body || {})
     });
-    if (r.status === 401 || r.status === 403) {
+    if (res.status === 401 || res.status === 403) {
       alert("Not authorized. Admin only.");
       localStorage.removeItem("qp_token");
       window.location.href = "./admin-login.html";
-      return { ok: false, error: "unauthorized" };
+      return { ok: false };
     }
-    return r.json();
+    return res.json();
   }
 
-  // ---- Logout ----
-  $('#adminLogoutBtn')?.addEventListener("click", () => {
+  // -------------------------------
+  // UI basics
+  // -------------------------------
+  $("#adminLogoutBtn")?.addEventListener("click", () => {
     localStorage.removeItem("qp_token");
     window.location.href = "./admin-login.html";
   });
 
-  // ---- Footer year ----
-  const yearNowEl = $('#yearNow');
+  const yearNowEl = $("#yearNow");
   if (yearNowEl) yearNowEl.textContent = new Date().getFullYear();
 
-  // =========================================================
-  // TAB SWITCHING
-  // =========================================================
-  $$(".admin-tab-btn").forEach(btn => {
+  $$(".admin-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tabId = btn.getAttribute("data-tab");
-
-      // set active state
-      $$(".admin-tab-btn").forEach(b => b.classList.remove("active"));
+      $$(".admin-tab-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-
-      // show the tab section
-      $$(".admin-tab-section").forEach(sec => {
+      $$(".admin-tab-section").forEach((sec) => {
         if (sec.id === tabId) sec.classList.remove("hidden");
         else sec.classList.add("hidden");
       });
     });
   });
 
+  const formatCurrency = (val) => {
+    const amount = Number(val ?? 0);
+    if (Number.isNaN(amount)) return "\u20B90.00";
+    return `\u20B9${amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
-  // =========================================================
-  // LOAD: Overview KPIs  (/admin/overview)
-  // =========================================================
-  async function loadOverviewKPIs() {
+  const formatTimestamp = (ts) => {
+    if (!ts) return "--";
+    const date = new Date(Number(ts));
+    if (Number.isNaN(date.getTime())) return "--";
+
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 60_000) return "just now";
+    if (diffMs < 3_600_000) return `${Math.round(diffMs / 60_000)} min ago`;
+    if (diffMs < 86_400_000) return `${Math.round(diffMs / 3_600_000)} hr ago`;
+    return date.toLocaleString();
+  };
+
+  const formatExpiry = (createdAt, expiresInSec) => {
+    if (!createdAt || !expiresInSec) return "--";
+    const expiryTs = Number(createdAt) + Number(expiresInSec) * 1000;
+    if (!Number.isFinite(expiryTs)) return "--";
+    const expiryDate = new Date(expiryTs);
+    if (Number.isNaN(expiryDate.getTime())) return "--";
+
+    const diffMs = expiryDate.getTime() - Date.now();
+    const base = expiryDate.toLocaleString();
+    if (diffMs <= 0) return `${base} (expired)`;
+
+    const diffMin = Math.round(diffMs / 60_000);
+    if (diffMin < 60) return `${base} (${diffMin} min left)`;
+
+    const diffHr = Math.round(diffMin / 60);
+    if (diffHr < 48) return `${base} (${diffHr} hr left)`;
+
+    const diffDay = Math.round(diffHr / 24);
+    return `${base} (${diffDay} day${diffDay === 1 ? "" : "s"} left)`;
+  };
+
+  const setValueState = (el, state) => {
+    if (!el) return;
+    el.classList.remove("good", "bad");
+    if (state === "good") el.classList.add("good");
+    if (state === "bad") el.classList.add("bad");
+  };
+
+  let cachedUsers = [];
+
+  // -------------------------------
+  // Overview KPIs
+  // -------------------------------
+  async function loadOverview() {
     const data = await jgetAuth("/admin/overview");
     if (!data || !data.ok) return;
 
     const sum = data.dailySummary || {};
+    $("#ovClosedTrades") && ($("#ovClosedTrades").textContent = sum.closedTrades ?? "--");
+    $("#ovWinLoss") && ($("#ovWinLoss").textContent = `Wins / Losses: ${sum.wins ?? "--"} / ${sum.losses ?? "--"}`);
 
-    $('#ovClosedTrades') && ($('#ovClosedTrades').textContent =
-      sum.closedTrades != null ? sum.closedTrades : "--");
-
-    $('#ovWinLoss') && ($('#ovWinLoss').textContent =
-      `Wins/Losses: ${sum.wins ?? "--"}/${sum.losses ?? "--"}`);
-
-    const pnlAbs = sum.grossPnLAbs ?? 0;
-    if ($('#ovPnL')) {
-      $('#ovPnL').textContent = "₹" + Number(pnlAbs).toFixed(2);
-      $('#ovPnL').style.color = pnlAbs >= 0 ? "#13c27a" : "#ff5f5f";
+    if ($("#ovPnL")) {
+      const pnl = Number(sum.grossPnLAbs ?? 0);
+      $("#ovPnL").textContent = formatCurrency(pnl);
+      $("#ovPnL").style.color = pnl >= 0 ? "#13c27a" : "#ff5f5f";
     }
 
-    if ($('#ovBestTrade')) {
+    if ($("#ovBestTrade")) {
       if (sum.bestTrade) {
-        $('#ovBestTrade').textContent =
-          `Best Trade: ${sum.bestTrade.symbol} (₹${Number(sum.bestTrade.pnlAbs || 0).toFixed(2)})`;
+        $("#ovBestTrade").textContent =
+          `Best trade: ${sum.bestTrade.symbol} (${formatCurrency(sum.bestTrade.pnlAbs ?? 0)})`;
       } else {
-        $('#ovBestTrade').textContent = "Best Trade: --";
+        $("#ovBestTrade").textContent = "Best trade: --";
       }
     }
 
-    $('#ovOpenTrades') && ($('#ovOpenTrades').textContent = data.openTradesCount ?? "--");
-    $('#ovAutoUsers') && ($('#ovAutoUsers').textContent = data.autoUsersCount ?? "--");
+    $("#ovOpenTrades") && ($("#ovOpenTrades").textContent = data.openTradesCount ?? "--");
+    $("#ovAutoUsers") && ($("#ovAutoUsers").textContent = data.autoUsersCount ?? "--");
   }
 
-
-  // =========================================================
-  // LOAD: Live Signals (/admin/signals)
-  // =========================================================
+  // -------------------------------
+  // Signals table
+  // -------------------------------
   async function loadSignals() {
     const resp = await jgetAuth("/admin/signals");
-    const body = $('#adminSignalsTbody');
+    const body = $("#adminSignalsTbody");
     if (!body) return;
 
     body.innerHTML = "";
-
     if (!resp || !resp.ok) {
-      body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;">No data / error</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5" class="admin-table-placeholder">No data / error</td></tr>`;
       return;
     }
 
-    const actionable = (resp.data || []).filter(r => r.inEntryZone);
-
+    const actionable = (resp.data || []).filter((row) => row.inEntryZone);
     if (!actionable.length) {
-      body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;">No active entries</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5" class="admin-table-placeholder">No active entries</td></tr>`;
       return;
     }
 
-    actionable.forEach(sig => {
-      const entry = Number(sig.ltp || 0);
-      const target = entry ? (entry * (1 + 1.5 / 100)) : 0;
-      const stop = entry ? (entry * (1 - 0.75 / 100)) : 0;
-
+    actionable.forEach((row) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>
-          <div class="admin-user-name">${sig.symbol}</div>
-          <div class="note-small">Momentum watch</div>
-        </td>
-        <td>₹${entry ? entry.toFixed(2) : "--"}</td>
-        <td>₹${target ? target.toFixed(2) : "--"}</td>
-        <td>₹${stop ? stop.toFixed(2) : "--"}</td>
-        <td>
-          <div class="note-small">
-            Entry zone logic satisfied
-          </div>
-        </td>
+        <td>${row.symbol}</td>
+        <td>${formatCurrency(row.ltp)}</td>
+        <td>${formatCurrency(row.target || row.ltp)}</td>
+        <td>${formatCurrency(row.stop || 0)}</td>
+        <td>${row.reason || "--"}</td>
       `;
       body.appendChild(tr);
     });
   }
 
-
-  // =========================================================
-  // LOAD: Trades (/admin/trades)
-  // =========================================================
+  // -------------------------------
+  // Trades table
+  // -------------------------------
   async function loadTrades() {
     const resp = await jgetAuth("/admin/trades");
-    const body = $('#adminTradesTbody');
+    const body = $("#adminTradesTbody");
     if (!body) return;
 
     body.innerHTML = "";
-
     if (!resp || !resp.ok) {
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">No data / error</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="admin-table-placeholder">No data / error</td></tr>`;
       return;
     }
 
     const trades = resp.trades || [];
     if (!trades.length) {
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">No trades</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="admin-table-placeholder">No trades yet</td></tr>`;
       return;
     }
 
-    trades.forEach(t => {
+    trades.forEach((trade) => {
       const tr = document.createElement("tr");
-
-      const pnlDisplay = (t.status === "CLOSED")
-        ? ("₹" + Number(t.pnlAbs || 0).toFixed(2))
-        : "--";
-
       tr.innerHTML = `
-        <td>
-          <div class="admin-user-name">${t.symbol}</div>
-          <div class="note-small">${t.side || "LONG"}</div>
-        </td>
-        <td>${t.qty}</td>
-        <td>₹${Number(t.entryPrice).toFixed(2)}</td>
-        <td>₹${Number(t.targetPrice).toFixed(2)}</td>
-        <td>₹${Number(t.stopPrice).toFixed(2)}</td>
-        <td>${t.status}</td>
-        <td>${pnlDisplay}</td>
+        <td>${trade.symbol}</td>
+        <td>${trade.direction}</td>
+        <td>${trade.quantity}</td>
+        <td>${formatCurrency(trade.entryPrice)}</td>
+        <td>${formatCurrency(trade.currentPrice)}</td>
+        <td>${trade.status}</td>
+        <td>${trade.updatedAt ? new Date(trade.updatedAt).toLocaleTimeString() : "--"}</td>
       `;
       body.appendChild(tr);
     });
   }
 
-
-  // =========================================================
-  // LOAD: Users (/admin/users)
-  // attach actions
-  // =========================================================
+  // -------------------------------
+  // Users table
+  // -------------------------------
   async function loadUsers() {
     const resp = await jgetAuth("/admin/users");
-    const body = $('#adminUsersTbody');
+    const body = $("#adminUsersTbody");
     if (!body) return;
 
     body.innerHTML = "";
-
-    if (!resp || !resp.ok || !Array.isArray(resp.users)) {
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;">Error loading users</td></tr>`;
+    if (!resp || !resp.ok) {
+      body.innerHTML = `<tr><td colspan="9" class="admin-table-placeholder">No data / error</td></tr>`;
+      cachedUsers = [];
+      renderAngelSummary();
       return;
     }
 
-    resp.users.forEach(user => {
-      const tr = document.createElement("tr");
+    cachedUsers = resp.users || [];
+    if (!cachedUsers.length) {
+      body.innerHTML = `<tr><td colspan="9" class="admin-table-placeholder">No users yet</td></tr>`;
+      renderAngelSummary();
+      return;
+    }
 
-      let planClass = "";
-      if (user.plan === "paid") planClass = "plan-paid";
-      else if (user.plan === "admin") planClass = "plan-admin";
+    cachedUsers.forEach((user) => {
+      const normalizedPlan = String(user.plan || "trial").toLowerCase();
+      const planIsPaid = normalizedPlan === "paid" || normalizedPlan === "admin";
+      const planClass = planIsPaid ? "plan-paid" : "plan-trial";
+      const planLabel =
+        normalizedPlan === "admin" ? "Admin" :
+        normalizedPlan === "paid" ? "Paid" : "Trial";
 
       const brokerConnected = user.broker?.connected;
-      const brokerName = user.broker?.brokerName || "";
-      const brokerClass = brokerConnected ? "broker-on" : "broker-off";
-      const brokerText = brokerConnected ? (brokerName || "Connected") : "Not Connected";
+      const brokerName = user.broker?.brokerName || "Not connected";
+      const brokerClass = brokerConnected ? "broker-connected" : "broker-missing";
 
-      const autoClass = user.autoTradingEnabled ? "auto-on" : "auto-off";
-      const autoText = user.autoTradingEnabled ? "ON" : "OFF";
+      const marginPct = Math.round((user.angelAllowedMarginPct ?? 0) * 100);
+      const liveEnabled = !!user.angelLiveEnabled;
+      const autoEnabled = !!user.autoTradingEnabled;
 
-      const created = user.createdAt
-        ? new Date(user.createdAt).toLocaleString()
-        : "--";
-
+      const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>
-          <div class="admin-user-name">${user.name || "(no name)"}</div>
-        </td>
-
-        <td>
-          <div class="admin-user-email">${user.email || "--"}</div>
-        </td>
-
-        <td>
-          <span class="admin-pill ${planClass}">${user.plan}</span>
-        </td>
-
-        <td>
-          <span class="admin-pill ${brokerClass}">${brokerText}</span>
-        </td>
-
-        <td>
-          <span class="admin-pill ${autoClass}">${autoText}</span>
-        </td>
-
-        <td>
-          <div class="admin-user-email">${created}</div>
-        </td>
-
+        <td>${user.name || "--"}</td>
+        <td><div class="admin-user-email">${user.email || "--"}</div></td>
+        <td><span class="admin-pill ${planClass}">${planLabel}</span></td>
+        <td><span class="admin-pill ${brokerClass}">${brokerName}</span></td>
+        <td><span class="admin-pill">${marginPct}%</span></td>
+        <td><span class="admin-pill ${liveEnabled ? "auto-on" : "broker-missing"}">${liveEnabled ? "Live ON" : "Live OFF"}</span></td>
+        <td><span class="admin-pill ${autoEnabled ? "auto-on" : "auto-off"}">${autoEnabled ? "Auto ON" : "Auto OFF"}</span></td>
+        <td>${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "--"}</td>
         <td>
           <div class="admin-row-actions">
-            <button class="admin-mini-btn pay"
-              data-action="makePaid"
-              data-id="${user._id}">
-              Paid
-            </button>
-
-            <button class="admin-mini-btn"
-              data-action="makeTrial"
-              data-id="${user._id}">
-              Trial
-            </button>
-
-            <button class="admin-mini-btn"
-              data-action="makeAdmin"
-              data-id="${user._id}">
-              Admin
-            </button>
-
-            <button class="admin-mini-btn danger"
-              data-action="toggleAuto"
-              data-id="${user._id}"
-              data-auto="${user.autoTradingEnabled}">
-              ${user.autoTradingEnabled ? "Auto OFF" : "Auto ON"}
-            </button>
+            <button class="admin-mini-btn pay" data-action="plan-paid" data-id="${user._id}">Paid</button>
+            <button class="admin-mini-btn" data-action="plan-trial" data-id="${user._id}">Trial</button>
+            <button class="admin-mini-btn" data-action="plan-admin" data-id="${user._id}">Admin</button>
+            <button class="admin-mini-btn" data-action="angel-login" data-id="${user._id}">Angel Login</button>
+            <button class="admin-mini-btn" data-action="angel-margin" data-id="${user._id}" data-margin="${marginPct}">Set Margin</button>
+            <button class="admin-mini-btn" data-action="angel-live" data-id="${user._id}" data-live="${liveEnabled}">${liveEnabled ? "Disable Live" : "Enable Live"}</button>
+            <button class="admin-mini-btn" data-action="auto-toggle" data-id="${user._id}" data-auto="${autoEnabled}">${autoEnabled ? "Auto OFF" : "Auto ON"}</button>
           </div>
         </td>
       `;
-
       body.appendChild(tr);
     });
 
-    body.querySelectorAll("button[data-action]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const action = btn.getAttribute("data-action");
-        const uid = btn.getAttribute("data-id");
-        if (!uid) return;
-
-        if (action === "makePaid") {
-          const r = await jpostAuth("/admin/user/plan", { userId: uid, plan: "paid" });
-          if (!r.ok) { alert(r.error || "Failed"); return; }
-          await loadUsers();
-          await loadOverviewKPIs();
-          return;
-        }
-
-        if (action === "makeTrial") {
-          const r = await jpostAuth("/admin/user/plan", { userId: uid, plan: "trial" });
-          if (!r.ok) { alert(r.error || "Failed"); return; }
-          await loadUsers();
-          await loadOverviewKPIs();
-          return;
-        }
-
-        if (action === "makeAdmin") {
-          const r = await jpostAuth("/admin/user/plan", { userId: uid, plan: "admin" });
-          if (!r.ok) { alert(r.error || "Failed"); return; }
-          await loadUsers();
-          await loadOverviewKPIs();
-          return;
-        }
-
-        if (action === "toggleAuto") {
-          const cur = btn.getAttribute("data-auto") === "true";
-          const r = await jpostAuth("/admin/user/automation", { userId: uid, enable: !cur });
-          if (!r.ok) { alert(r.error || "Failed"); return; }
-          await loadUsers();
-          await loadOverviewKPIs();
-          return;
-        }
-      });
+    body.querySelectorAll("button[data-action]").forEach((btn) => {
+      btn.addEventListener("click", handleUserAction);
     });
+
+    renderAngelSummary();
   }
 
+  async function handleUserAction(evt) {
+    const btn = evt.currentTarget;
+    const action = btn.getAttribute("data-action");
+    const userId = btn.getAttribute("data-id");
+    if (!userId) return;
 
-  // =========================================================
-  // LOAD: System settings (/admin/system)
-  // and allow toggles
-  // =========================================================
+    if (action === "plan-paid" || action === "plan-trial" || action === "plan-admin") {
+      const plan = action.replace("plan-", "");
+      const resp = await jpostAuth("/admin/user/plan", { userId, plan });
+      if (!resp.ok) {
+        alert(resp.error || "Failed to update plan");
+        return;
+      }
+      await loadUsers();
+      return;
+    }
+
+    if (action === "auto-toggle") {
+      const current = btn.getAttribute("data-auto") === "true";
+      const resp = await jpostAuth("/admin/user/automation", { userId, enable: !current });
+      if (!resp.ok) {
+        alert(resp.error || "Failed to update automation");
+        return;
+      }
+      await loadUsers();
+      return;
+    }
+
+    if (action === "angel-margin") {
+      const current = Number(btn.getAttribute("data-margin") || 50);
+      const value = prompt("Set Angel margin percentage (0 - 100):", current);
+      if (value === null) return;
+      const pct = Number(value);
+      if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+        alert("Enter a value between 0 and 100.");
+        return;
+      }
+      const resp = await jpostAuth("/admin/user/angel", {
+        userId,
+        allowedMarginPercent: pct
+      });
+      if (!resp.ok) {
+        alert(resp.error || "Failed to update margin");
+        return;
+      }
+      await loadUsers();
+      return;
+    }
+
+    if (action === "angel-live") {
+      const current = btn.getAttribute("data-live") === "true";
+      const resp = await jpostAuth("/admin/user/angel", {
+        userId,
+        liveEnabled: !current
+      });
+      if (!resp.ok) {
+        alert(resp.error || "Failed to update live flag");
+        return;
+      }
+      await loadUsers();
+      return;
+    }
+
+    if (action === "angel-login") {
+      const data = await jgetAuth(`/admin/angel/login-link?userId=${encodeURIComponent(userId)}`);
+      if (!data || !data.ok) {
+        alert(data.error || "Failed to generate login link");
+        return;
+      }
+      window.open(data.url, "_blank", "width=520,height=680");
+      return;
+    }
+  }
+
+  // -------------------------------
+  // System settings table
+  // -------------------------------
   async function loadSystem() {
     const resp = await jgetAuth("/admin/system");
-    const body = $('#adminSystemTbody');
+    const body = $("#adminSystemTbody");
     if (!body) return;
 
     body.innerHTML = "";
-
-    if (!resp || !resp.ok || !resp.settings) {
-      body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;">Error loading system flags</td></tr>`;
+    if (!resp || !resp.ok) {
+      body.innerHTML = `<tr><td colspan="4" class="admin-table-placeholder">No data / error</td></tr>`;
       return;
     }
 
-    const s = resp.settings;
+    const settings = resp.settings || {};
+    const keys = Object.keys(settings);
+    if (!keys.length) {
+      body.innerHTML = `<tr><td colspan="4" class="admin-table-placeholder">No settings tracked</td></tr>`;
+      return;
+    }
 
-    const rows = [
-      {
-        key: "isPaperTradingActive",
-        title: "Paper Trading Engine",
-        desc: "If OFF, engine will STOP simulating new paper trades.",
-        val: s.isPaperTradingActive
-      },
-      {
-        key: "isLiveExecutionAllowed",
-        title: "Allow Live Execution For Paid Users",
-        desc: "If ON, paid users *may* place real trades (still gated by their auto toggle + broker connection).",
-        val: s.isLiveExecutionAllowed
-      },
-      {
-        key: "marketHalt",
-        title: "Emergency Halt",
-        desc: "If ON, system should NOT enter any new position of any kind.",
-        val: s.marketHalt
-      }
-    ];
-
-    rows.forEach(row => {
+    keys.forEach((key) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>
-          <div class="admin-user-name">${row.title}</div>
-        </td>
-
-        <td>
-          <span class="admin-pill ${row.val ? 'auto-on' : 'auto-off'}">
-            ${row.val ? "ON" : "OFF"}
-          </span>
-        </td>
-
-        <td>
-          <div class="note-small">${row.desc}</div>
-        </td>
-
-        <td>
-          <button class="admin-mini-btn sys"
-            data-action="toggleSystem"
-            data-key="${row.key}"
-            data-val="${row.val ? "true" : "false"}">
-            ${row.val ? "Turn OFF" : "Turn ON"}
-          </button>
-        </td>
+        <td>${key}</td>
+        <td>${String(settings[key])}</td>
+        <td>--</td>
+        <td>${new Date().toLocaleTimeString()}</td>
       `;
       body.appendChild(tr);
     });
-
-    // action binding
-    body.querySelectorAll("button[data-action='toggleSystem']").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const key = btn.getAttribute("data-key");
-        const current = btn.getAttribute("data-val") === "true";
-        const r = await jpostAuth("/admin/system", {
-          key,
-          value: !current
-        });
-        if (!r.ok) {
-          alert(r.error || "Failed to update setting");
-          return;
-        }
-        await loadSystem();
-        await loadOverviewKPIs();
-      });
-    });
   }
 
-
-  // =========================================================
-  // FYERS BROKER CONNECT (System Control tab)
-  // =========================================================
-
-  async function fyersStatus() {
-    const r = await fetch("/fyers/status", {
-      headers: authHeaders()
-    });
-    if (!r.ok) {
-      return { ok: false, error: "status fetch failed" };
-    }
-    return r.json();
-  }
-
-  async function fyersGetLoginUrl() {
-    const r = await fetch("/fyers/login-url", {
-      headers: authHeaders()
-    });
-    if (!r.ok) {
-      return { ok: false, error: "login-url failed" };
-    }
-    return r.json();
-  }
-
-  async function fyersExchangeCode(authCode) {
-    const r = await fetch("/fyers/exchange", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(true)
-      },
-      body: JSON.stringify({ auth_code: authCode })
-    });
-
-    if (!r.ok) {
-      return { ok: false, error: "exchange failed" };
-    }
-
-    return await r.json();
-  }
-
-
-  async function renderFyersStatus() {
-    const statusTextEl = document.getElementById("fyersStatusText");
-    const metaEl = document.getElementById("fyersTokenMeta");
-
-    if (!statusTextEl || !metaEl) return;
-
-    statusTextEl.textContent = "Checking…";
-    statusTextEl.classList.remove("broker-status-on", "broker-status-off");
-    statusTextEl.classList.add("broker-status-off");
-
-    const resp = await fyersStatus();
-    if (!resp.ok) {
-      statusTextEl.textContent = "ERROR";
-      metaEl.textContent = resp.error || "Cannot fetch broker status";
-      return;
-    }
-
-    if (resp.hasRefresh) {
-      statusTextEl.textContent = "CONNECTED";
-      statusTextEl.classList.remove("broker-status-off");
-      statusTextEl.classList.add("broker-status-on");
-
-      const createdAt = resp.tokenCreatedAt
-        ? new Date(resp.tokenCreatedAt).toLocaleString()
-        : "--";
-
-      metaEl.textContent = `Access: ${resp.hasAccess ? "OK" : "No"} | Since: ${createdAt}`;
-    } else {
-      statusTextEl.textContent = "NOT LINKED";
-      statusTextEl.classList.remove("broker-status-on");
-      statusTextEl.classList.add("broker-status-off");
-      metaEl.textContent = "No refresh_token stored yet. Complete Step 1 & Step 2.";
-    }
-  }
-
-  // ===== Engine (M1) Control Helpers =====
-
-  async function getEngineStatusWeb() {
-    const r = await fetch("/admin/engine/status", {
-      headers: authHeaders()
-    });
-    if (!r.ok) {
-      return { ok: false, error: "status fetch failed" };
-    }
-    return r.json();
-  }
-
-  async function startEngineWeb() {
-    const r = await fetch("/admin/engine/start", {
-      method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({})
-    });
-    if (!r.ok) {
-      let e;
-      try { e = await r.json(); } catch { }
-      return { ok: false, error: e?.error || "start failed" };
-    }
-    return r.json();
-  }
-
-  async function stopEngineWeb() {
-    const r = await fetch("/admin/engine/stop", {
-      method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({})
-    });
-    if (!r.ok) {
-      let e;
-      try { e = await r.json(); } catch { }
-      return { ok: false, error: e?.error || "stop failed" };
-    }
-    return r.json();
-  }
-
+  // -------------------------------
+  // Engine status
+  // -------------------------------
   async function renderEngineStatus() {
-    const pillEl = document.getElementById("engineStatusPill");
-    const beforeEl = document.getElementById("engineBeforeCutoff");
-    const errEl = document.getElementById("engineLastError");
+    const resp = await jgetAuth("/admin/engine/status");
+    if (!resp || !resp.ok) return;
 
-    if (!pillEl || !beforeEl || !errEl) return;
+    const pill = $("#engineStatusPill");
+    if (pill) {
+      const running = resp.running;
+      pill.textContent = running ? "ON" : "OFF";
+      pill.classList.toggle("pill-on", running);
+      pill.classList.toggle("pill-off", !running);
+    }
+    $("#engineBeforeCutoff") && ($("#engineBeforeCutoff").textContent = resp.beforeCutoff ?? "--");
+    $("#engineLastError") && ($("#engineLastError").textContent = resp.lastError || "None");
+  }
 
-    // show loading state first
-    pillEl.textContent = "…";
-    pillEl.classList.remove("pill-on", "pill-off");
-    pillEl.classList.add("pill-off");
-    beforeEl.textContent = "--";
-    errEl.textContent = "--";
+  $("#btnEngineStart")?.addEventListener("click", async () => {
+    await jpostAuth("/admin/engine/start", {});
+    await renderEngineStatus();
+  });
 
-    const resp = await getEngineStatusWeb();
-    if (!resp.ok) {
-      pillEl.textContent = "ERR";
-      pillEl.classList.remove("pill-on");
-      pillEl.classList.add("pill-off");
-      beforeEl.textContent = "-";
-      errEl.textContent = resp.error || "Unable to load";
+  $("#btnEngineStop")?.addEventListener("click", async () => {
+    await jpostAuth("/admin/engine/stop", {});
+    await renderEngineStatus();
+  });
+
+  // -------------------------------
+  // Angel summary
+  // -------------------------------
+  function renderAngelSummary() {
+    const linked = cachedUsers.filter((u) => u.broker?.connected && u.broker?.brokerName === "ANGEL");
+    const live = cachedUsers.filter((u) => u.angelLiveEnabled);
+    const marginValues = linked
+      .map((u) => Number(u.angelAllowedMarginPct ?? 0))
+      .filter((val) => Number.isFinite(val));
+
+    const avgMargin = marginValues.length
+      ? Math.round((marginValues.reduce((sum, val) => sum + val, 0) / marginValues.length) * 100)
+      : 0;
+
+    $("#angelLinkedUsers") && ($("#angelLinkedUsers").textContent = linked.length);
+    $("#angelLiveUsers") && ($("#angelLiveUsers").textContent = live.length);
+    $("#angelAvgMargin") && ($("#angelAvgMargin").textContent = marginValues.length ? `${avgMargin}%` : "--");
+  }
+
+  $("#angelRefreshSummaryBtn")?.addEventListener("click", () => {
+    renderAngelSummary();
+    const ts = new Date().toLocaleTimeString();
+    $("#angelSummaryMsg") && ($("#angelSummaryMsg").textContent = `Summary refreshed at ${ts}`);
+  });
+
+  // -------------------------------
+  // Angel login assistant
+  // -------------------------------
+  async function generateAngelLink() {
+    const input = $("#angelAssistUser");
+    const msg = $("#angelAssistMsg");
+    const linkBox = $("#angelLoginLink");
+    if (!input || !msg || !linkBox) return;
+
+    const raw = input.value.trim();
+    if (!raw) {
+      msg.textContent = "Enter a user ID or email first.";
+      msg.style.color = "#ff5f5f";
       return;
     }
 
-    const s = resp.status || {};
-    // s = { engineOn, beforeCutoff, lastError }
+    msg.textContent = "Generating...";
+    msg.style.color = "var(--admin-text-soft)";
 
-    if (s.engineOn) {
-      pillEl.textContent = "RUNNING";
-      pillEl.classList.remove("pill-off");
-      pillEl.classList.add("pill-on");
-    } else {
-      pillEl.textContent = "STOPPED";
-      pillEl.classList.remove("pill-on");
-      pillEl.classList.add("pill-off");
-    }
+    const query = raw.includes("@")
+      ? `?email=${encodeURIComponent(raw)}`
+      : `?userId=${encodeURIComponent(raw)}`;
 
-    beforeEl.textContent = s.beforeCutoff ? "Yes" : "No";
-    errEl.textContent = s.lastError ? s.lastError : "None";
-  }
-
-  async function fyersStatus() {
-    const r = await fetch("/fyers/status", {
-      headers: authHeaders()
-    });
-    if (!r.ok) {
-      return { ok: false, error: "status fetch failed" };
-    }
-    return r.json(); // now includes hasAccess, tokenCreatedAt, etc.
-  }
-
-  async function fyersForceRefresh() {
-    const r = await fetch("/fyers/force-refresh", {
-      method: "POST",
-      headers: authHeaders(true),
-      body: JSON.stringify({})
-    });
-    let payload;
-    try { payload = await r.json(); } catch (e) { payload = { ok: false, error: "invalid json" }; }
-
-    if (!r.ok) {
-      return { ok: false, error: payload.error || "force refresh failed" };
-    }
-
-    return payload; // { ok:true, tokens:{...} }
-  }
-
-
-  function tsOrDash(ts) {
-    if (!ts) return "--";
-    const d = new Date(ts);
-    return d.toLocaleString(); // IST visible in Codespaces? fine for now.
-  }
-
-  async function renderFyersTokenMeta() {
-    const data = await fyersStatus();
-
-    const elAccess = document.getElementById("fyersHasAccess");
-    const elRefresh = document.getElementById("fyersHasRefresh");
-    const elCreated = document.getElementById("fyersCreatedAt");
-    const elAuto = document.getElementById("fyersAutoRef");
-    const elManual = document.getElementById("fyersManualRef");
-    const elTTL = document.getElementById("fyersTTL");
-
-    // if UI block hasn't been added yet, just skip harmlessly
-    if (!elAccess) return;
-
-    if (!data.ok) {
-      elAccess.textContent = "ERR";
-      elRefresh.textContent = "ERR";
-      elCreated.textContent = data.error || "error";
-      elAuto.textContent = "--";
-      elManual.textContent = "--";
-      elTTL.textContent = "--";
+    const data = await jgetAuth(`/admin/angel/login-link${query}`);
+    if (!data || !data.ok) {
+      msg.textContent = data.error || "Unable to build login link";
+      msg.style.color = "#ff5f5f";
       return;
     }
 
-    elAccess.textContent = data.hasAccess ? "Yes" : "No";
-    elRefresh.textContent = data.hasRefresh ? "Yes" : "No";
-    elCreated.textContent = tsOrDash(data.tokenCreatedAt);
-    elAuto.textContent = tsOrDash(data.lastAutoRefreshAt);
-    elManual.textContent = tsOrDash(data.lastManualRefreshAt);
-    elTTL.textContent = data.expiresInSec ?? "--";
+    linkBox.value = data.url;
+    msg.textContent = "Login link generated. Share securely.";
+    msg.style.color = "#13c27a";
   }
 
-  function wireFyersTokenUI() {
-    const btnForce = document.getElementById("btnForceRefresh");
-    const resultBox = document.getElementById("forceRefreshResult");
-
-    const reload2 = document.getElementById("fyersStatusReloadBtn2"); // ⟳ button on that card
-
-    if (btnForce && resultBox) {
-      btnForce.addEventListener("click", async () => {
-        btnForce.disabled = true;
-        resultBox.style.color = "#4e6bff";
-        resultBox.textContent = "Refreshing...";
-        const out = await fyersForceRefresh();
-        if (!out.ok) {
-          resultBox.style.color = "#ff5f5f";
-          resultBox.textContent = "Failed: " + (out.error || "unknown");
-          btnForce.disabled = false;
-          return;
-        }
-        resultBox.style.color = "#13c27a";
-        resultBox.textContent = "Success. New access_token saved.";
-        btnForce.disabled = false;
-
-        // re-render token metadata
-        await renderFyersTokenMeta();
-        // also re-render main fyers status pill, if you want
-        await renderFyersStatus();
-      });
+  $("#angelGenerateLoginBtn")?.addEventListener("click", generateAngelLink);
+  $("#angelLaunchLoginBtn")?.addEventListener("click", () => {
+    const link = $("#angelLoginLink")?.value?.trim();
+    if (!link) {
+      alert("Generate a login link first.");
+      return;
     }
+    window.open(link, "_blank", "width=520,height=680");
+  });
+  $("#angelStatusReloadBtn")?.addEventListener("click", loadUsers);
 
-    if (reload2) {
-      reload2.addEventListener("click", async () => {
-        await renderFyersTokenMeta();
-        await renderFyersStatus();
-      });
-    }
-  }
-
-
-  function wireEngineUI() {
-    const btnStart = document.getElementById("btnEngineStart");
-    const btnStop = document.getElementById("btnEngineStop");
-
-    if (btnStart) {
-      btnStart.addEventListener("click", async () => {
-        btnStart.disabled = true;
-        btnStart.textContent = "Starting...";
-        const r = await startEngineWeb();
-        if (!r.ok) {
-          alert("Start failed: " + (r.error || r.msg || "unknown"));
-        }
-        btnStart.disabled = false;
-        btnStart.textContent = "Start Engine";
-        await renderEngineStatus();
-      });
-    }
-
-    if (btnStop) {
-      btnStop.addEventListener("click", async () => {
-        btnStop.disabled = true;
-        btnStop.textContent = "Stopping...";
-        const r = await stopEngineWeb();
-        if (!r.ok) {
-          alert("Stop failed: " + (r.error || r.msg || "unknown"));
-        }
-        btnStop.disabled = false;
-        btnStop.textContent = "Stop Engine";
-        await renderEngineStatus();
-      });
-    }
-  }
-
-
-  function wireFyersUI() {
-    const btnStatus = document.getElementById("fyersStatusReloadBtn");
-    const btnGetUrl = document.getElementById("btnGetLoginUrl");
-    const btnOpenUrl = document.getElementById("btnOpenLoginUrl");
-    const btnExchange = document.getElementById("btnExchangeCode");
-
-    const urlInput = document.getElementById("fyersLoginUrl");
-    const codeInput = document.getElementById("fyersAuthCodeInput");
-    const resultBox = document.getElementById("fyersExchangeResult");
-
-    if (btnStatus) {
-      btnStatus.addEventListener("click", async () => {
-        await renderFyersStatus();
-      });
-    }
-
-    if (btnGetUrl && urlInput) {
-      btnGetUrl.addEventListener("click", async () => {
-        urlInput.value = "Loading...";
-        const data = await fyersGetLoginUrl();
-        if (!data.ok) {
-          urlInput.value = "ERROR";
-          return;
-        }
-        urlInput.value = data.url || "";
-      });
-    }
-
-    if (btnOpenUrl && urlInput) {
-      btnOpenUrl.addEventListener("click", () => {
-        if (!urlInput.value) {
-          alert("Generate URL first");
-          return;
-        }
-        window.open(urlInput.value, "_blank");
-      });
-    }
-
-    if (btnExchange && codeInput && resultBox) {
-      btnExchange.addEventListener("click", async () => {
-        const code = codeInput.value.trim();
-        if (!code) {
-          alert("Paste auth_code first");
-          return;
-        }
-        resultBox.style.color = "#4e6bff";
-        resultBox.textContent = "Exchanging...";
-
-        const data = await fyersExchangeCode(code);
-
-        if (!data.ok) {
-          resultBox.style.color = "#ff5f5f";
-          resultBox.textContent = "Failed: " + (data.error || "unknown error");
-          return;
-        }
-
-        resultBox.style.color = "#13c27a";
-        resultBox.textContent = "Success. Tokens saved.";
-
-        await renderFyersStatus();
-      });
-    }
-  }
-
-
-  // =========================================================
-  // REFRESH BUTTONS per-section
-  // =========================================================
-  $$(".admin-refresh-btn").forEach(btn => {
+  // -------------------------------
+  // Refresh buttons
+  // -------------------------------
+  $$(".admin-refresh-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const type = btn.getAttribute("data-reload");
-      if (type === "signals") await loadSignals();
-      else if (type === "trades") await loadTrades();
-      else if (type === "users") await loadUsers();
-      else if (type === "system") await loadSystem();
-      else if (type === "engine") await renderEngineStatus();
-      else {
-        await loadOverviewKPIs();
-        await loadSignals();
-        await loadTrades();
-        await loadUsers();
-        await loadSystem();
-        await renderEngineStatus();
-      }
+      const target = btn.getAttribute("data-reload");
+      if (target === "signals") await loadSignals();
+      else if (target === "trades") await loadTrades();
+      else if (target === "users") await loadUsers();
+      else if (target === "system") await loadSystem();
+      else if (target === "engine") await renderEngineStatus();
+      else if (target === "broker") await loadUsers();
+      else await loadOverview();
     });
   });
 
-
-
-  // =========================================================
-  // INITIAL LOAD + POLLING + FYERS INIT
-  // =========================================================
-  async function initialLoad(){
-  await loadOverviewKPIs();
-  await loadSignals();
-  await loadTrades();
-  await loadUsers();
-  await loadSystem();
-  await renderEngineStatus();
-
-  wireFyersUI();          // existing broker connect UI (login-url + exchange)
-  await renderFyersStatus();   // status pill CONNECTED / NOT LINKED
-
-  await renderFyersTokenMeta(); // <-- NEW metadata table
-  wireFyersTokenUI();           // <-- NEW force refresh button
-
-  wireEngineUI();         // start/stop engine buttons
-}
-
-initialLoad();
-
-setInterval(()=>{
-  loadOverviewKPIs();
-  loadSignals();
-  loadTrades();
-  renderEngineStatus();
-  renderFyersTokenMeta();  // keep timestamps somewhat fresh
-}, 30000);
-
-
-// ============================
-// Live Fyers DataSocket Viewer
-// ============================
-(() => {
-  const box = document.getElementById("socketStreamBox");
-  const clearBtn = document.getElementById("btnClearSocketLog");
-  if (!box) return;
-
-  // Event bus — optional: if your backend already streams via SSE or WS,
-  // replace this demo with a real-time fetch or socket message handler.
-  // Below example uses a simple poll endpoint `/api/socket-stream` returning recent ticks.
-
-  async function fetchLatestTicks() {
-    try {
-      const res = await fetch("/api/socket-stream");
-      const data = await res.json();
-      renderTicks(data);
-    } catch (err) {
-      console.error("socket-stream fetch error:", err);
-    }
+  // -------------------------------
+  // Initial load + polling
+  // -------------------------------
+  async function initialLoad() {
+    await loadOverview();
+    await loadSignals();
+    await loadTrades();
+    await loadUsers();
+    await loadSystem();
+    await renderEngineStatus();
   }
 
-  function renderTicks(arr) {
-    if (!Array.isArray(arr) || arr.length === 0) {
-      box.innerHTML = "<div style='opacity:0.6'>No recent ticks</div>";
-      return;
+  initialLoad();
+
+  setInterval(() => {
+    loadOverview();
+    loadSignals();
+    loadTrades();
+    renderEngineStatus();
+  }, 30000);
+
+  // -------------------------------
+  // Live data stream viewer (demo polling)
+  // -------------------------------
+  (() => {
+    const box = document.getElementById("socketStreamBox");
+    const clearBtn = document.getElementById("btnClearSocketLog");
+    if (!box) return;
+
+    async function fetchLatestTicks() {
+      try {
+        const res = await fetch("/api/socket-stream");
+        const data = await res.json();
+        renderTicks(data);
+      } catch (err) {
+        console.error("socket-stream fetch error:", err);
+      }
     }
-    const html = arr
-      .slice(-50)
-      .reverse()
-      .map(
-        (t) =>
-          `<div><span style="color:#4effa1;">${t.symbol}</span> → ${t.ltp} <span style="opacity:0.6;">(${new Date(t.ts).toLocaleTimeString()})</span></div>`
-      )
-      .join("");
-    box.innerHTML = html;
-  }
 
-  clearBtn.addEventListener("click", () => {
-    box.innerHTML = "<div style='opacity:0.6'>Cleared</div>";
-  });
+    function renderTicks(arr) {
+      if (!Array.isArray(arr) || arr.length === 0) {
+        box.innerHTML = "<div style='opacity:0.6'>No recent ticks</div>";
+        return;
+      }
+      const html = arr
+        .slice(-50)
+        .reverse()
+        .map(
+          (t) =>
+            `<div><span style="color:#4effa1;">${t.symbol}</span> @ ${t.ltp} <span style="opacity:0.6;">(${new Date(t.ts).toLocaleTimeString()})</span></div>`
+        )
+        .join("");
+      box.innerHTML = html;
+    }
 
-  // Poll every 2s (you can switch to a WebSocket or SSE for push updates)
-  setInterval(fetchLatestTicks, 2000);
-})();
+    clearBtn?.addEventListener("click", () => {
+      box.innerHTML = "<div style='opacity:0.6'>Cleared</div>";
+    });
 
+    setInterval(fetchLatestTicks, 2000);
+  })();
+})(); 
 
-
-})(); // END IIFE

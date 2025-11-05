@@ -1,263 +1,310 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Your Trading Console • QuantPulse</title>
-    <link rel="stylesheet" href="./styles/main.css" />
-    <link rel="stylesheet" href="./styles/app.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IntradayGain Console </title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./styles/landing.css" />
+  <link rel="stylesheet" href="./styles/app.css" />
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
-
-<body class="app-body">
-
-    <header class="app-header">
-        <div class="app-container app-topbar">
-            <div class="app-brand">
-                <div class="brand-logo">🚀</div>
-                <div>
-                    <div class="app-name">QuantPulse</div>
-                    <div class="app-tag">Live Strategy</div>
-                </div>
-            </div>
-
-            <div class="app-userbox">
-                <div class="usr-plan" id="userPlan">Plan: Trial</div>
-                <div class="usr-broker" id="userBroker">Broker: Not Connected</div>
-                <button class="logout-btn" id="logoutBtn">Log out</button>
-            </div>
-        </div>
-    </header>
-
-    
-
-    <main class="app-main app-container">
-
-        <!-- Opportunities -->
-        <section class="app-card">
-            <div class="app-card-head">
-                <div>
-                    <div class="app-card-title">Today's Opportunities</div>
-                    <div class="app-card-sub">
-                        Stocks that had strong momentum and are now in pullback entry zone.
-                    </div>
-                </div>
-                <button class="btn-primary app-small-btn" id="btnRefreshSignals">Refresh</button>
-            </div>
-
-            <div class="app-card-body" style="overflow-x:auto;">
-                <table class="app-table">
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Suggested Entry (LTP)</th>
-                            <th>Target (+1.5%)</th>
-                            <th>Stop (-0.75%)</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="signalsTableBody">
-                        <tr>
-                            <td colspan="5">Loading…</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="app-card-foot">
-                These are not tips. This is your framework. Use size control and discipline.
-            </div>
-        </section>
-
-        <!-- Performance Today -->
-        <section class="app-card">
-            <div class="app-card-head">
-                <div>
-                    <div class="app-card-title">Performance Today</div>
-                    <div class="app-card-sub">Paper trading results so far</div>
-                </div>
-                <button class="btn-ghost app-small-btn" id="btnRefreshReport">Update</button>
-            </div>
-
-            <div class="app-stats-row">
-                <div class="app-stat-box">
-                    <div class="app-stat-label">Closed Trades</div>
-                    <div class="app-stat-value" id="repClosed">--</div>
-                </div>
-
-                <div class="app-stat-box">
-                    <div class="app-stat-label">Wins / Losses</div>
-                    <div class="app-stat-value" id="repWL">--</div>
-                </div>
-
-                <div class="app-stat-box">
-                    <div class="app-stat-label">Net PnL (₹)</div>
-                    <div class="app-stat-value" id="repPnL">--</div>
-                </div>
-
-                <div class="app-stat-box">
-                    <div class="app-stat-label">Best Trade</div>
-                    <div class="app-stat-value" id="repBest">--</div>
-                </div>
-            </div>
-
-            <div class="app-card-foot">
-                We auto-calc target/SL, exit for you in paper mode, and track PnL.
-            </div>
-        </section>
-
-        <!-- Your Open Trades -->
-        <section class="app-card">
-            <div class="app-card-head">
-                <div>
-                    <div class="app-card-title">Your Open Positions (Paper)</div>
-                    <div class="app-card-sub">We'll close automatically at target or stop</div>
-                </div>
-                <button class="btn-ghost app-small-btn" id="btnRefreshTrades">Refresh</button>
-            </div>
-
-            <div class="app-card-body" style="overflow-x:auto;">
-                <table class="app-table">
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Qty</th>
-                            <th>Entry</th>
-                            <th>Target</th>
-                            <th>Stop</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tradesTableBody">
-                        <tr>
-                            <td colspan="6">Loading…</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="app-card-foot">
-                When you're happy with paper results, connect broker to go live.
-            </div>
-        </section>
-
-        <!-- Your Settings -->
-        <section class="app-card">
-            <div class="app-card-head">
-                <div>
-                    <div class="app-card-title">Your Automation Settings</div>
-                    <div class="app-card-sub">You stay in control. Always.</div>
-                </div>
-            </div>
-
-            <div class="settings-grid">
-                <div class="settings-block">
-                    <div class="settings-label">Subscription</div>
-                    <div class="settings-value" id="planName">Trial (Upgrade Available)</div>
-                    <button class="btn-primary app-small-btn" id="upgradePlanBtn">Upgrade Plan</button>
-                </div>
-
-
-
-                <div class="settings-block">
-                    <div class="settings-label">Broker Connection</div>
-                    <div class="settings-value" id="brokerStatus">Not Connected</div>
-                    <button class="btn-primary app-small-btn" id="openBrokerModalBtn">Connect / Update Broker</button>
-                </div>
-
-                <div class="settings-block">
-                    <div class="settings-label">Automation</div>
-                    <div class="settings-value" id="autoMode">OFF</div>
-                    <button class="btn-ghost app-small-btn" id="toggleAutoBtn">Enable Auto Trading</button>
-                    <div class="settings-hint">
-                        We will never place live orders until you enable this.
-                        Paper mode keeps running even if this is OFF.
-                    </div>
-                </div>
-
-                <div class="settings-block">
-                    <div class="settings-label">Risk / Trade</div>
-                    <div class="settings-value">Target +1.5% / Stop -0.75%</div>
-                    <div class="settings-hint">
-                        Fixed risk model. No revenge trades. No averaging down.
-                    </div>
-                </div>
-            </div>
-
-            <div class="app-card-foot">
-                We will never touch your live broker without Automation = ON.
-            </div>
-        </section>
-
-
-    </main>
-    <!-- BROKER CONNECT MODAL -->
-    <div class="modal-overlay" id="brokerModal">
-        <div class="modal-card">
-            <button class="modal-close" id="closeBrokerModalBtn">&times;</button>
-            <div class="modal-head">
-                <div class="modal-title">Connect Broker</div>
-                <div class="modal-sub">
-                    Choose your broker and paste your API details.
-                    We will NOT place live trades without your explicit approval.
-                </div>
-            </div>
-
-            <form id="brokerForm" class="modal-form">
-                <div class="form-field">
-                    <label>Broker</label>
-                    <select name="brokerName" required>
-                        <option value="">Select broker</option>
-                        <option value="ZERODHA">Zerodha</option>
-                        <option value="ANGEL">Angel One</option>
-                        <option value="FYERS">Fyers</option>
-                    </select>
-                </div>
-
-                <div class="form-field">
-                    <label>API Key</label>
-                    <input type="text" name="apiKey" placeholder="Your API key" />
-                </div>
-
-                <div class="form-field">
-                    <label>Client ID / User ID</label>
-                    <input type="text" name="clientId" placeholder="abc123 / client code" />
-                </div>
-
-                <div class="form-field">
-                    <label>Access Token / Session Token</label>
-                    <input type="text" name="accessToken" placeholder="access token" />
-                </div>
-
-                <div class="form-field">
-                    <label>Refresh Token (if any)</label>
-                    <input type="text" name="refreshToken" placeholder="refresh token" />
-                </div>
-
-                <button class="btn-primary form-btn" type="submit" id="brokerSubmitBtn">
-                    Save Broker →
-                </button>
-
-                <div class="form-note" id="brokerMsg">
-                    Only you can authorize real trading.
-                </div>
-            </form>
-        </div>
+<body class="app-shell">
+  <aside class="app-sidebar" id="appSidebar">
+    <div class="app-sidebar-head">
+      <span class="app-logo">IG</span>
+      <div class="app-sidebar-meta">
+        <span class="app-sidebar-name">IntradayGain</span>
+        <span class="app-sidebar-tag">Live Desk</span>
+      </div>
+      <button type="button" class="app-sidebar-close" id="appSidebarClose">&times;</button>
     </div>
 
+    <nav class="app-nav">
+      <button class="app-nav-item active" data-view="overviewView">Overview</button>
+      <button class="app-nav-item" data-view="signalsView">Signals</button>
+      <button class="app-nav-item" data-view="positionsView">Positions</button>
+      <button class="app-nav-item" data-view="automationView">Automation</button>
+    </nav>
 
-    <footer class="app-footer">
-        <div class="app-container app-footer-row">
-            <div class="app-foot-left">
-                © <span id="yearNow"></span> QuantPulse. Educational use only. No guaranteed returns.
-            </div>
-            <div class="app-foot-right">
-                Need help? support@example.com
-            </div>
+    <div class="app-sidebar-footer">
+      <div class="app-sidebar-pill" id="sidebarPlanPill">Plan: Trial</div>
+      <div class="app-sidebar-pill" id="sidebarBrokerPill">Broker: Not Connected</div>
+    </div>
+  </aside>
+
+  <div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
+
+  <div class="app-content">
+    <header class="app-bar">
+      <div class="container app-bar-inner">
+        <button type="button" class="app-menu-btn" id="appMenuBtn" aria-label="Open navigation">
+          <span></span><span></span><span></span>
+        </button>
+
+        <div class="app-brand">
+          <span class="app-logo">IG</span>
+          <div class="app-brand-meta">
+            <span class="app-brand-name">IntradayGain</span>
+            
+          </div>
         </div>
+
+        
+        <div class="app-header-actions">
+          <button type="button" class="app-btn primary" id="subscribeBtn">Subscribe Now</button>
+          <div class="app-profile">
+            <button type="button" class="app-profile-toggle" id="profileToggle">
+              <span class="app-profile-avatar" id="profileInitial">U</span>
+              <span class="app-profile-name" id="profileName">Account</span>
+              <span class="app-profile-caret"></span>
+            </button>
+            <div class="app-dropdown" id="profileDropdown">
+              <button type="button" data-action="profile" id="profileOption">My Profile</button>
+              <button type="button" data-action="password" id="passwordOption">Change Password</button>
+              <button type="button" data-action="logout" id="logoutOption">Logout</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="app-view active" id="overviewView">
+        <div class="container app-stack">
+          <section class="app-hero">
+            <div class="app-hero-top">
+              <div class="app-hero-text">
+                <p class="app-eyebrow">Intraday Stock Automation</p>
+                <h1 class="app-hero-title">Operate with discipline, not impulse.</h1>
+             
+              </div>
+          
+            </div>
+
+            <div class="app-hero-metrics">
+              <article class="app-hero-metric">
+                <span class="app-hero-metric-label">Closed trades</span>
+                <span class="app-hero-metric-value" id="repClosed">--</span>
+              </article>
+              <article class="app-hero-metric">
+                <span class="app-hero-metric-label">Wins / losses</span>
+                <span class="app-hero-metric-value" id="repWL">--</span>
+              </article>
+              <article class="app-hero-metric">
+                <span class="app-hero-metric-label">Net PnL (₹)</span>
+                <span class="app-hero-metric-value" id="repPnL">--</span>
+              </article>
+              <article class="app-hero-metric">
+                <span class="app-hero-metric-label">Best trade</span>
+                <span class="app-hero-metric-value" id="repBest">--</span>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="app-view" id="signalsView">
+        <div class="container">
+          <section class="app-card app-card--signals">
+            <header class="app-card-head">
+              <div>
+                <h2 class="app-card-title">Today's opportunities</h2>
+                <p class="app-card-sub">Momentum + pullback candidates that match the live strategy filters.</p>
+              </div>
+            </header>
+            <div class="app-card-body">
+              <div class="app-scroll">
+                <table class="app-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Suggested entry (LTP)</th>
+                      <th>Target (+1.5%)</th>
+                      <th>Stop (-0.75%)</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="signalsTableBody">
+                    <tr>
+                      <td colspan="5">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="app-view" id="positionsView">
+        <div class="container">
+          <section class="app-card app-card--positions">
+            <header class="app-card-head">
+              <div>
+                <h2 class="app-card-title">Open positions (paper)</h2>
+                
+              </div>
+            </header>
+            <div class="app-card-body">
+              <div class="app-scroll">
+                <table class="app-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Qty</th>
+                      <th>Entry</th>
+                      <th>Target</th>
+                      <th>Stop</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tradesTableBody">
+                    <tr>
+                      <td colspan="6">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="app-view" id="automationView">
+        <div class="container">
+          <section class="app-card app-card--controls">
+            <header class="app-card-head">
+              <div>
+                <h2 class="app-card-title">Automation &amp; guardrails</h2>
+                <p class="app-card-sub">
+                  Link your Angel account, define how much margin we may use, and choose when to run live.
+                </p>
+              </div>
+            </header>
+
+            <div class="app-settings">
+              
+              <article class="app-setting-card">
+                <div class="app-setting-label">Angel broker login</div>
+                <div class="app-pill status" id="angelConnBadge">Angel Not Linked</div>
+                <button type="button" class="app-btn outline small" id="startAngelLoginBtn">Start Angel Login</button>
+                
+              </article>
+
+              
+              <article class="app-setting-card">
+                <div class="app-setting-label">Allowed margin usage</div>
+                <div class="app-setting-value">
+                  <span id="angelMarginValue">50%</span> of Angel funds
+                </div>
+                <form id="angelMarginForm" class="app-margin-form">
+                  <input
+                    type="range"
+                    id="angelMarginInput"
+                    name="angelMargin"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value="50"
+                  />
+                  <div class="app-margin-scale">
+                    <span>0%</span>
+                    <span>50%</span>
+                    <span>100%</span>
+                  </div>
+                  <button type="submit" class="app-btn outline small" id="angelMarginSaveBtn">Save Risk Budget</button>
+                </form>
+               </article>
+
+              <article class="app-setting-card">
+                <div class="app-setting-label">Angel live execution</div>
+                <div class="app-pill status" id="angelLiveStatus" data-state="off">Live OFF</div>
+                <button type="button" class="app-btn outline small" id="angelLiveToggleBtn">Enable Live</button>
+                <p class="app-setting-hint">
+                  Requires Angel broker link and upgraded plan. Toggle only after reviewing your margin cap.
+                </p>
+              </article>
+
+              <article class="app-setting-card">
+                <div class="app-setting-label">Automation master switch</div>
+                <div class="app-setting-value" id="autoMode">OFF</div>
+                <button type="button" class="app-btn outline small" id="toggleAutoBtn">Enable Auto Trading</button>
+                <p class="app-setting-hint">
+                  Paper trading keeps running even when automation is off. You choose when to go live.
+                </p>
+              </article>
+
+              </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-foot">
+      <div class="container app-foot-inner">
+        <div class="app-foot-left">
+          &copy; <span id="yearNow"></span> IntradayGain Technologies, No guaranteed returns, as Market involves Risk
+        </div>
+        <div class="app-foot-right">
+          Need help? <a href="mailto:support@IntradayGain.in">support@IntradayGain.com</a>
+        </div>
+      </div>
     </footer>
+  </div>
 
-    <script src="./js/app.js"></script>
+  <div class="pricing-modal" id="pricingModal">
+    <div class="pricing-modal-card">
+      <button type="button" class="pricing-modal-close" id="pricingModalClose">&times;</button>
+      <h3>Choose your plan</h3>
+      <p>Upgrade to unlock live automation, Angel integration, and full analytics.</p>
+
+      <div class="pricing-modal-grid">
+        <article class="pricing-option" data-plan="monthly">
+          <h4>Monthly</h4>
+          <p class="pricing-price">&#8377;1,000</p>
+          <ul>
+            <li>Live Angel execution</li>
+            <li>Priority onboarding</li>
+            <li>Automation Access 1 Month</li>
+          </ul>
+          <button type="button" class="app-btn primary small pricing-select" data-plan="monthly">Choose Monthly</button>
+        </article>
+
+        <article class="pricing-option" data-plan="quarterly">
+          <div class="pricing-badge">Popular</div>
+          <h4>Quarterly</h4>
+          <p class="pricing-price">&#8377;2,100</p>
+          <ul>
+            <li>Live Angel execution</li>
+            <li>Priority onboarding</li>
+            <li>Automation Access 3 Months</li>
+          </ul>
+          <button type="button" class="app-btn primary small pricing-select" data-plan="quarterly">Choose Quarterly</button>
+        </article>
+
+        <article class="pricing-option" data-plan="yearly">
+          <h4>Yearly</h4>
+          <p class="pricing-price">&#8377;6,000</p>
+          <ul>
+            <li>Live Angel execution</li>
+            <li>Priority onboarding</li>
+            <li>Automation Access 12 Months</li>
+          </ul>
+          <button type="button" class="app-btn primary small pricing-select" data-plan="yearly">Choose Yearly</button>
+        </article>
+      </div>
+
+      <div class="pricing-modal-msg" id="pricingModalMsg"></div>
+    </div>
+  </div>
+
+  
+  <script src="./js/app.js"></script>
 </body>
-
 </html>
+

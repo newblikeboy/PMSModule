@@ -37,6 +37,9 @@ app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 app.use("/admin", adminRoutes);
 app.use("/fyers", fyersRoutes);
+// ---- Angel Publisher integration ----
+app.use("/", require("./routes/angel.auth.routes")); // handles /auth/angel/login + /auth/angel/callback
+
 
 //Testing Purpose - Live Tick Data Stream
 // server.js (or routes file)

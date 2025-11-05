@@ -1,7 +1,15 @@
 // controllers/subscription.controller.js
 "use strict";
 
+const axios = require("axios");
+const crypto = require("crypto");
 const User = require("../models/User");
+
+const PLAN_PRICING = {
+  monthly: { amount: 1000, label: "Monthly" },
+  quarterly: { amount: 2100, label: "Quarterly" },
+  yearly: { amount: 6000, label: "Yearly" }
+};
 
 /**
  * GET /user/plan/status
@@ -13,6 +21,7 @@ exports.getStatus = async (req, res, next) => {
     res.json({
       ok: true,
       plan: u.plan,
+      planTier: u.planTier || u.plan,
       canAutoTrade: u.plan === "paid" && u.autoTradingEnabled === true,
       message:
         u.plan === "paid"
@@ -45,53 +54,104 @@ exports.createUpgradeIntent = async (req, res, next) => {
       });
     }
 
-    // In real life:
-    //  - create Razorpay order or Stripe checkout session
-    //  - return paymentRef / checkoutURL
-    // For demo MVP we just mock it:
-    const mockPaymentRef = "PAY_" + Date.now();
+    const planType = String(req.body?.planType || "monthly").toLowerCase();
+    const planInfo = PLAN_PRICING[planType];
+    if (!planInfo) {
+      return res.status(400).json({ ok: false, error: "Invalid plan type" });
+    }
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      return res.status(500).json({
+        ok: false,
+        error: "Razorpay keys not configured on the server"
+      });
+    }
+
+    const amountPaise = Math.round(planInfo.amount * 100);
+    const payload = {
+      amount: amountPaise,
+      currency: "INR",
+      receipt: `qp_${planType}_${Date.now()}`,
+      payment_capture: 1,
+      notes: {
+        planType,
+        userId: u._id.toString()
+      }
+    };
+
+    const authHeader = "Basic " + Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+    const orderResp = await axios.post("https://api.razorpay.com/v1/orders", payload, {
+      headers: { Authorization: authHeader }
+    });
+    const order = orderResp?.data;
 
     res.json({
       ok: true,
-      amountINR: 1999,
-      currency: "INR",
-      description: "QuantPulse Monthly Plan",
-      paymentRef: mockPaymentRef,
-      message:
-        "Payment intent created. Complete payment to activate Paid Plan."
+      planType,
+      label: planInfo.label,
+      amount: order.amount,
+      currency: order.currency,
+      orderId: order.id,
+      keyId
     });
   } catch (err) {
-    next(err);
+    console.error("[subscription] createUpgradeIntent error:", err?.response?.data || err?.message || err);
+    res.status(500).json({ ok: false, error: "Failed to create Razorpay order" });
   }
 };
 
 /**
  * POST /user/plan/confirm
- * Body: { paymentRef }
- * This is where you'd verify payment from Razorpay webhook/receipt.
- * We'll trust the frontend for now (demo mode).
+ * Body: { razorpay_order_id, razorpay_payment_id, razorpay_signature, planType }
  */
 exports.confirmUpgrade = async (req, res, next) => {
   try {
-    const { paymentRef } = req.body;
-    if (!paymentRef) {
+    const {
+      razorpay_order_id: orderId,
+      razorpay_payment_id: paymentId,
+      razorpay_signature: signature,
+      planType
+    } = req.body || {};
+
+    if (!orderId || !paymentId || !signature) {
       return res
         .status(400)
-        .json({ ok: false, error: "paymentRef required" });
+        .json({ ok: false, error: "Invalid payment confirmation payload" });
     }
 
-    // TODO: verify paymentRef with payment provider
-    // For MVP we assume payment succeeded.
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keySecret) {
+      return res.status(500).json({ ok: false, error: "Razorpay secret missing" });
+    }
+
+    const generatedSignature = crypto
+      .createHmac("sha256", keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest("hex");
+
+    if (generatedSignature !== signature) {
+      return res.status(400).json({ ok: false, error: "Signature verification failed" });
+    }
 
     req.user.plan = "paid";
+    if (planType && PLAN_PRICING[planType]) {
+      req.user.planTier = planType;
+    } else if (!req.user.planTier) {
+      req.user.planTier = "monthly";
+    }
     await req.user.save();
 
     res.json({
       ok: true,
       plan: req.user.plan,
+      planTier: req.user.planTier,
       message: "Subscription upgraded to Paid."
     });
   } catch (err) {
-    next(err);
+    console.error("[subscription] confirmUpgrade error:", err?.message || err);
+    res.status(500).json({ ok: false, error: "Failed to confirm payment" });
   }
 };

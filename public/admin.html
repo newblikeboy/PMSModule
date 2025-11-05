@@ -1,39 +1,35 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>QuantPulse Admin Console</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
   <link rel="stylesheet" href="./styles/landing.css" />
   <link rel="stylesheet" href="./styles/admin.css" />
 </head>
+<body class="admin-shell">
 
-<body class="admin-body">
-
-  <!-- HEADER -->
-  <header class="admin-header">
-    <div class="admin-header-inner container">
-      <div class="admin-left">
-        <div class="admin-brand">
-          <div class="admin-logo">🚀</div>
-          <div>
-            <div class="admin-name">QuantPulse Console</div>
-            <div class="admin-tag">Founder / Internal Only</div>
-          </div>
+  <header class="admin-bar">
+    <div class="container admin-bar-inner">
+      <div class="admin-brand">
+        <span class="admin-logo">QP</span>
+        <div class="admin-brand-meta">
+          <span class="admin-brand-name">QuantPulse Console</span>
+          <span class="admin-brand-tag">Founder / Internal Only</span>
         </div>
       </div>
 
-      <div class="admin-right">
-        <button class="admin-logout-btn" id="adminLogoutBtn">Logout</button>
-      </div>
+      <button type="button" class="admin-bar-btn" id="adminLogoutBtn">Logout</button>
     </div>
   </header>
 
-  <!-- NAV TABS -->
-  <nav class="admin-tabs">
-    <div class="container admin-tabs-inner">
+  <nav class="admin-nav">
+    <div class="container admin-nav-inner">
       <button class="admin-tab-btn active" data-tab="overviewTab">Overview</button>
       <button class="admin-tab-btn" data-tab="tradesTab">Trades</button>
       <button class="admin-tab-btn" data-tab="usersTab">Users</button>
@@ -41,386 +37,316 @@
     </div>
   </nav>
 
-  <main class="admin-main container">
+  <main class="admin-main">
+    <div class="container admin-tabs-wrap">
 
-    <!-- ============ OVERVIEW TAB ============ -->
-    <section class="admin-tab-section" id="overviewTab">
-      <section class="admin-card-grid">
-        <div class="admin-card">
-          <div class="admin-card-label">Closed Trades (Today)</div>
-          <div class="admin-card-value" id="ovClosedTrades">--</div>
-          <div class="admin-card-foot" id="ovWinLoss">Wins/Losses: --</div>
+      <section class="admin-tab-section" id="overviewTab">
+        <div class="admin-kpi-grid">
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Closed trades (today)</span>
+            <span class="admin-kpi-value" id="ovClosedTrades">--</span>
+            <span class="admin-kpi-foot" id="ovWinLoss">Wins / Losses: --</span>
+          </article>
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Net PnL today</span>
+            <span class="admin-kpi-value" id="ovPnL">--</span>
+            <span class="admin-kpi-foot" id="ovBestTrade">Best trade: --</span>
+          </article>
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Open paper trades</span>
+            <span class="admin-kpi-value" id="ovOpenTrades">--</span>
+            <span class="admin-kpi-foot">Current simulated exposure in market.</span>
+          </article>
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Automation enabled users</span>
+            <span class="admin-kpi-value" id="ovAutoUsers">--</span>
+            <span class="admin-kpi-foot">Users with autoTradingEnabled = true.</span>
+          </article>
         </div>
 
-        <div class="admin-card">
-          <div class="admin-card-label">Net PnL Today</div>
-          <div class="admin-card-value" id="ovPnL">--</div>
-          <div class="admin-card-foot" id="ovBestTrade">Best Trade: --</div>
-        </div>
-
-        <div class="admin-card">
-          <div class="admin-card-label">Open Paper Trades</div>
-          <div class="admin-card-value" id="ovOpenTrades">--</div>
-          <div class="admin-card-foot">
-            Current simulated exposure in market
-          </div>
-        </div>
-
-        <div class="admin-card">
-          <div class="admin-card-label">Automation Enabled Users</div>
-          <div class="admin-card-value" id="ovAutoUsers">--</div>
-          <div class="admin-card-foot">
-            Users with autoTradingEnabled = true
-          </div>
-        </div>
-      </section>
-
-      <section class="admin-users-wrap" style="margin-top:24px;">
-        <div class="admin-users-head">
-          <div>
-            <div class="admin-section-title">Live Signals Snapshot</div>
-            <div class="admin-section-sub">
-              What symbols are currently in our “entry zone”
-            </div>
-          </div>
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" data-reload="signals">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Entry Price</th>
-                <th>Target</th>
-                <th>Stop</th>
-                <th>Why Listed</th>
-              </tr>
-            </thead>
-            <tbody id="adminSignalsTbody">
-              <tr>
-                <td colspan="5" style="text-align:center;padding:20px;">Loading…</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </section>
-
-
-    <!-- ============ TRADES TAB ============ -->
-    <section class="admin-tab-section hidden" id="tradesTab">
-      <div class="admin-users-wrap">
-        <div class="admin-users-head">
-          <div>
-            <div class="admin-section-title">Today's Trades (Paper)</div>
-            <div class="admin-section-sub">
-              Both OPEN and CLOSED positions from tradeEngine
-            </div>
-          </div>
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" data-reload="trades">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Qty</th>
-                <th>Entry</th>
-                <th>Target</th>
-                <th>Stop</th>
-                <th>Status</th>
-                <th>PnL (if closed)</th>
-              </tr>
-            </thead>
-            <tbody id="adminTradesTbody">
-              <tr>
-                <td colspan="7" style="text-align:center;padding:20px;">Loading…</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- ============ USERS TAB ============ -->
-    <section class="admin-tab-section hidden" id="usersTab">
-      <div class="admin-users-wrap">
-        <div class="admin-users-head">
-          <div>
-            <div class="admin-section-title">Users & Access</div>
-            <div class="admin-section-sub">
-              Manage plans, broker connection, automation rights
-            </div>
-          </div>
-
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" data-reload="users">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Email</th>
-                <th>Plan</th>
-                <th>Broker</th>
-                <th>Auto</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="adminUsersTbody">
-              <tr>
-                <td colspan="7" style="text-align:center;padding:20px;">Loading…</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- ============ SYSTEM CONTROL TAB ============ -->
-    <section class="admin-tab-section hidden" id="systemTab">
-      <div class="admin-users-wrap">
-        <div class="admin-users-head">
-          <div>
-            <div class="admin-section-title">System Control</div>
-            <div class="admin-section-sub">
-              Kill switches and global config
-            </div>
-          </div>
-
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" data-reload="system">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Current</th>
-                <th>Description</th>
-                <th>Toggle</th>
-              </tr>
-            </thead>
-            <tbody id="adminSystemTbody">
-              <tr>
-                <td colspan="4" style="text-align:center;padding:20px;">Loading…</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="admin-section-sub" style="margin-top:16px;">
-          These switches are global. Use carefully.
-        </div>
-      </div>
-
-      <!-- 🔐 Fyers Broker Auth Card -->
-      <div class="admin-broker-card">
-        <div class="admin-broker-head">
-          <div>
-            <div class="admin-section-title">Fyers Broker Connection</div>
-            <div class="admin-section-sub">
-              Connect once with your Fyers account. After this, tokens auto-refresh and engine can stream live data.
-            </div>
-          </div>
-          <div class="admin-refresh-block">
-            <button class="admin-refresh-btn" id="fyersStatusReloadBtn">↻ Status</button>
-          </div>
-        </div>
-
-        <div class="admin-broker-body">
-
-          <!-- Status Row -->
-          <div class="broker-status-row">
+        <div class="admin-slab">
+          <div class="admin-slab-head">
             <div>
-              <div class="note-small">Connection Status</div>
-              <div id="fyersStatusText" class="broker-status-pill broker-status-off">Checking…</div>
+              <h2 class="admin-slab-title">Live Signals Snapshot</h2>
+              <p class="admin-slab-sub">Symbols currently inside our equity entry zone criteria.</p>
             </div>
-            <div class="note-small" id="fyersTokenMeta"></div>
+            <button type="button" class="admin-refresh-btn" data-reload="signals">Refresh</button>
           </div>
 
-          <hr class="broker-divider" />
-
-          <!-- Step 1: Get Login URL -->
-          <div class="broker-step">
-            <div class="broker-step-left">
-              <div class="broker-step-title">Step 1. Generate Login URL</div>
-              <div class="note-small">
-                Click “Get URL”, open it, login to Fyers, and you'll get <b>auth_code</b> in redirect.
-              </div>
-            </div>
-            <div class="broker-step-right">
-              <button class="admin-mini-btn" id="btnGetLoginUrl">Get URL</button>
-            </div>
-          </div>
-
-          <div class="broker-url-row">
-            <input id="fyersLoginUrl" class="broker-url-input" type="text" placeholder="login url will appear here"
-              readonly />
-            <button class="admin-mini-btn" id="btnOpenLoginUrl">Open</button>
-          </div>
-
-          <hr class="broker-divider" />
-
-          <!-- Step 2: Exchange auth_code -->
-          <div class="broker-step">
-            <div class="broker-step-left">
-              <div class="broker-step-title">Step 2. Paste auth_code and Exchange</div>
-              <div class="note-small">
-                After login, copy auth_code from redirect URL and paste it here.
-              </div>
-            </div>
-            <div class="broker-step-right"></div>
-          </div>
-
-          <div class="broker-url-row">
-            <input id="fyersAuthCodeInput" class="broker-url-input" type="text"
-              placeholder="paste auth_code from redirect here" />
-            <button class="admin-mini-btn pay" id="btnExchangeCode">Exchange</button>
-          </div>
-
-          <div class="note-small" id="fyersExchangeResult" style="margin-top:8px;color:#4e6bff;"></div>
-
-        </div>       
-        
-      </div>
-
-
-      <div class="admin-card">
-        <div class="admin-card-head">
-          <div>
-            <div class="admin-card-title">Scanner Engine (M1)</div>
-            <div class="note-small">Real-time 5% movers scanner running on live market feed</div>
-          </div>
-          <div>
-            <button class="admin-refresh-btn" data-reload="engine">⟳ Refresh</button>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Entry Price</th>
+                  <th>Target</th>
+                  <th>Stop</th>
+                  <th>Why Listed</th>
+                </tr>
+              </thead>
+              <tbody id="adminSignalsTbody">
+                <tr>
+                  <td colspan="5" class="admin-table-placeholder">Loading...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
+      </section>
 
-        <div class="admin-engine-row">
-          <div>
-            <div class="engine-status-line">
-              <span class="label">Status:</span>
-              <span id="engineStatusPill" class="pill-off">OFF</span>
+      <section class="admin-tab-section hidden" id="tradesTab">
+        <div class="admin-slab">
+          <div class="admin-slab-head">
+            <div>
+              <h2 class="admin-slab-title">Today's Trades (Paper)</h2>
+              <p class="admin-slab-sub">Open and closed positions streamed from the trade engine.</p>
             </div>
-
-            <div class="engine-meta">
-              <div><span class="label">Before Cutoff:</span> <span id="engineBeforeCutoff">--</span></div>
-              <div><span class="label">Last Error:</span> <span id="engineLastError">--</span></div>
-            </div>
+            <button type="button" class="admin-refresh-btn" data-reload="trades">Refresh</button>
           </div>
 
-          <div class="engine-controls">
-            <button id="btnEngineStart" class="admin-mini-btn">Start Engine</button>
-            <button id="btnEngineStop" class="admin-mini-btn danger">Stop Engine</button>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Direction</th>
+                  <th>Qty</th>
+                  <th>Entry</th>
+                  <th>Current</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody id="adminTradesTbody">
+                <tr>
+                  <td colspan="7" class="admin-table-placeholder">Loading...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
+      </section>
 
-        <div class="admin-card">
-  <div class="admin-card-head">
-    <div>
-      <div class="admin-card-title">Broker Token Status</div>
-      <div class="note-small">Access token lifecycle & manual refresh control</div>
-    </div>
-    <div>
-      <button class="admin-refresh-btn" id="fyersStatusReloadBtn2" data-reload="broker">⟳</button>
-    </div>
-  </div>
+      <section class="admin-tab-section hidden" id="usersTab">
+        <div class="admin-slab">
+          <div class="admin-slab-head">
+            <div>
+              <h2 class="admin-slab-title">Users &amp; Access</h2>
+              <p class="admin-slab-sub">Manage plans, Angel linkage, margin budgets and automation rights.</p>
+            </div>
+            <button type="button" class="admin-refresh-btn" data-reload="users">Refresh</button>
+          </div>
 
-  <div class="broker-token-grid">
-    <div class="broker-token-row">
-      <div class="label">Access Token:</div>
-      <div id="fyersHasAccess" class="value">--</div>
-    </div>
-    <div class="broker-token-row">
-      <div class="label">Refresh Token:</div>
-      <div id="fyersHasRefresh" class="value">--</div>
-    </div>
-    <div class="broker-token-row">
-      <div class="label">Token Created At:</div>
-      <div id="fyersCreatedAt" class="value">--</div>
-    </div>
-    <div class="broker-token-row">
-      <div class="label">Last Auto Refresh:</div>
-      <div id="fyersAutoRef" class="value">--</div>
-    </div>
-    <div class="broker-token-row">
-      <div class="label">Last Manual Refresh:</div>
-      <div id="fyersManualRef" class="value">--</div>
-    </div>
-    <div class="broker-token-row">
-      <div class="label">Expires In (sec):</div>
-      <div id="fyersTTL" class="value">--</div>
-    </div>
-  </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Plan</th>
+                  <th>Broker</th>
+                  <th>Angel Margin</th>
+                  <th>Angel Live</th>
+                  <th>Automation</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersTbody">
+                <tr>
+                  <td colspan="9" class="admin-table-placeholder">Loading...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
-  <div class="broker-token-actions">
-    <button id="btnForceRefresh" class="admin-mini-btn">
-      Force Refresh Token
-    </button>
-    <div id="forceRefreshResult" class="note-small" style="margin-top:6px;color:#666;">
-      <!-- status text goes here -->
+      <section class="admin-tab-section hidden" id="systemTab">
+        <div class="admin-slab-grid">
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">System Health</h2>
+                <p class="admin-slab-sub">Internal services, queues and background schedulers.</p>
+              </div>
+              <button type="button" class="admin-refresh-btn" data-reload="system">Refresh</button>
+            </div>
+
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Notes</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="adminSystemTbody">
+                  <tr>
+                    <td colspan="4" class="admin-table-placeholder">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">Angel Login Assistant</h2>
+                <p class="admin-slab-sub">
+                  Generate the publisher login link for a user and share it securely.
+                </p>
+              </div>
+            </div>
+
+            <div class="admin-broker">
+              <div class="broker-status-row">
+                <label class="broker-status-label" for="angelAssistUser">User ID or Email</label>
+                <input id="angelAssistUser" class="broker-url-input" type="text" placeholder="Enter user ID or email" />
+              </div>
+              <div class="broker-url-row">
+                <button type="button" class="admin-mini-btn" id="angelGenerateLoginBtn">Generate Login URL</button>
+                <button type="button" class="admin-mini-btn" id="angelLaunchLoginBtn">Open in New Window</button>
+              </div>
+              <div class="broker-url-row">
+                <input id="angelLoginLink" class="broker-url-input" type="text" placeholder="Generated login link appears here" readonly />
+              </div>
+              <div class="broker-step-help" id="angelAssistMsg"></div>
+            </div>
+          </div>
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">Scanner Engine (M1)</h2>
+                <p class="admin-slab-sub">Real-time 5% movers scanner running on live market feed.</p>
+              </div>
+              <button type="button" class="admin-refresh-btn" data-reload="engine">Refresh</button>
+            </div>
+
+            <div class="admin-engine">
+              <div class="engine-meta-block">
+                <div class="engine-status-line">
+                  <span class="label">Status:</span>
+                  <span id="engineStatusPill" class="pill-off">OFF</span>
+                </div>
+                <div class="engine-meta">
+                  <div><span class="label">Before cutoff:</span> <span id="engineBeforeCutoff">--</span></div>
+                  <div><span class="label">Last error:</span> <span id="engineLastError">--</span></div>
+                </div>
+              </div>
+              <div class="engine-controls">
+                <button type="button" class="admin-mini-btn" id="btnEngineStart">Start Engine</button>
+                <button type="button" class="admin-mini-btn danger" id="btnEngineStop">Stop Engine</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">Fyers Access Tokens</h2>
+                <p class="admin-slab-sub">Monitor auth state used for quote streaming and refresh on demand.</p>
+              </div>
+              <div class="admin-slab-head-actions">
+                <button type="button" class="admin-mini-btn" id="fyersStatusReloadBtn">Check Status</button>
+                <button type="button" class="admin-mini-btn pay" id="fyersForceRefreshBtn">Force Refresh</button>
+                <button type="button" class="admin-mini-btn" id="fyersLoginBtn">Open Login Flow</button>
+              </div>
+            </div>
+
+            <div class="broker-token-grid">
+              <div class="broker-token-row">
+                <span class="label">Access token</span>
+                <span class="value" id="fyersAccessState">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Refresh token</span>
+                <span class="value" id="fyersRefreshState">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Token issued</span>
+                <span class="value" id="fyersTokenIssued">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Expires</span>
+                <span class="value" id="fyersTokenExpiry">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Last auto refresh</span>
+                <span class="value" id="fyersAutoRefresh">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Last manual refresh</span>
+                <span class="value" id="fyersManualRefresh">--</span>
+              </div>
+            </div>
+
+            <div class="broker-token-actions">
+              <div class="broker-step-help" id="fyersStatusMsg"></div>
+            </div>
+          </div>
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">Angel Token Status</h2>
+                <p class="admin-slab-sub">Track saved publisher tokens and refresh timestamps.</p>
+              </div>
+              <button type="button" class="admin-refresh-btn" id="angelStatusReloadBtn" data-reload="broker">Refresh</button>
+            </div>
+
+            <div class="broker-token-grid">
+              <div class="broker-token-row">
+                <span class="label">Linked users</span>
+                <span class="value" id="angelLinkedUsers">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">With live enabled</span>
+                <span class="value" id="angelLiveUsers">--</span>
+              </div>
+              <div class="broker-token-row">
+                <span class="label">Average margin cap</span>
+                <span class="value" id="angelAvgMargin">--</span>
+              </div>
+            </div>
+
+            <div class="broker-token-actions">
+              <button type="button" class="admin-mini-btn" id="angelRefreshSummaryBtn">Refresh Summary</button>
+              <div class="broker-step-help" id="angelSummaryMsg"></div>
+            </div>
+          </div>
+
+          <div class="admin-slab">
+            <div class="admin-slab-head">
+              <div>
+                <h2 class="admin-slab-title">Live Data Stream</h2>
+                <p class="admin-slab-sub">Most recent tick updates received from the data socket.</p>
+              </div>
+              <button type="button" class="admin-mini-btn danger" id="btnClearSocketLog">Clear</button>
+            </div>
+
+            <div class="admin-stream-box" id="socketStreamBox">
+              <div>Awaiting live ticks...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
-  </div>
-</div>
-
-      </div>
-
-      <!-- 🔴 FYERS DATA SOCKET LIVE STREAM MONITOR -->
-<div class="admin-card" style="margin-top:24px;">
-  <div class="admin-card-head">
-    <div>
-      <div class="admin-card-title">Live DataSocket Stream</div>
-      <div class="note-small">
-        View the most recent real-time LTP updates received from Fyers API.
-      </div>
-    </div>
-    <div>
-      <button id="btnClearSocketLog" class="admin-mini-btn danger">Clear</button>
-    </div>
-  </div>
-
-  <div class="broker-token-grid" style="max-height:240px;overflow-y:auto;background:#0f1117;color:#d5d9e0;padding:8px;border-radius:8px;font-family:monospace;font-size:13px;" id="socketStreamBox">
-    <div>Awaiting live ticks…</div>
-  </div>
-</div>
-
-      
-
-      
-      
-
-    </section>
-
-
   </main>
 
-  <footer class="admin-footer">
-    <div class="container admin-footer-inner">
-      <div class="admin-foot-left">
-        © <span id="yearNow"></span> QuantPulse Internal Console
-      </div>
-      <div class="admin-foot-right">
-        Confidential • Do not share externally
-      </div>
+  <footer class="admin-foot">
+    <div class="container admin-foot-inner">
+      <div>&copy; <span id="yearNow"></span> QuantPulse Internal Console.</div>
+      <div>Confidential - Do not share externally.</div>
     </div>
   </footer>
 
   <script src="./js/admin.js"></script>
 </body>
-
 </html>

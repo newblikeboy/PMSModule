@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const adminRequired = require("../middlewares/adminRequired");
 const adminCtrl = require("../controllers/admin.controller");
+const angelPublisher = require("../services/angel.publisher.service");
+const User = require("../models/User");
 
 const {
   getEngineStatus,
@@ -41,6 +43,33 @@ router.get("/trades", adminRequired, async (req,res,next)=>{
 router.get("/users", adminRequired, adminCtrl.getUsers);
 router.post("/user/plan", adminRequired, adminCtrl.setUserPlan);
 router.post("/user/automation", adminRequired, adminCtrl.setUserAutomation);
+router.post("/user/angel", adminRequired, adminCtrl.setUserAngelConfig);
+router.get("/angel/login-link", adminRequired, async (req, res) => {
+  try {
+    let { userId, email } = req.query || {};
+    userId = userId?.trim();
+    email = email?.trim()?.toLowerCase();
+
+    if (!userId && email) {
+      const user = await User.findOne({ email }).select("_id");
+      if (!user) {
+        return res.status(404).json({ ok: false, error: "User not found for email" });
+      }
+      userId = user._id.toString();
+    }
+
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Provide userId or email" });
+    }
+
+    const url = await angelPublisher.buildLoginUrlForUserId(userId);
+    res.json({ ok: true, url });
+  } catch (err) {
+    const msg = err?.message || "Unable to build login link";
+    const status = msg.includes("not found") ? 404 : msg.includes("required") ? 400 : 500;
+    res.status(status).json({ ok: false, error: msg });
+  }
+});
 
 // system control
 router.get("/system", adminRequired, adminCtrl.getSystemSettings);

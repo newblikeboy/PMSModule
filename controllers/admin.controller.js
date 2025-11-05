@@ -41,6 +41,8 @@ exports.getUsers = async (req, res, next) => {
       "broker.connected": 1,
       "broker.brokerName": 1,
       autoTradingEnabled: 1,
+      angelAllowedMarginPct: 1,
+      angelLiveEnabled: 1,
       createdAt: 1
     })
     .sort({ createdAt: -1 })
@@ -108,9 +110,61 @@ exports.setUserAutomation = async (req, res, next) => {
     next(err);
   }
 };
+
+// 5. Update Angel settings (margin / live flag)
+// POST /admin/user/angel
+// body: { userId, allowedMarginPct?, allowedMarginPercent?, liveEnabled? }
+exports.setUserAngelConfig = async (req, res, next) => {
+  try {
+    const { userId, allowedMarginPct, allowedMarginPercent, liveEnabled } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "userId required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ ok: false, error: "user not found" });
+
+    let margin = allowedMarginPct;
+    if (margin === undefined && allowedMarginPercent !== undefined) {
+      margin = Number(allowedMarginPercent) / 100;
+    }
+    if (margin !== undefined) {
+      const pct = Number(margin);
+      if (Number.isNaN(pct) || !Number.isFinite(pct)) {
+        return res.status(400).json({ ok: false, error: "Invalid margin value" });
+      }
+      if (pct < 0 || pct > 1) {
+        return res.status(400).json({ ok: false, error: "Margin must be between 0 and 1" });
+      }
+      user.angelAllowedMarginPct = pct;
+    }
+
+    if (liveEnabled !== undefined) {
+      const boolVal = liveEnabled === true || liveEnabled === "true" || liveEnabled === 1 || liveEnabled === "1";
+      const brokerOk = user.broker?.connected && user.broker?.brokerName === "ANGEL";
+      if (boolVal && !brokerOk) {
+        return res.status(400).json({ ok: false, error: "Connect Angel broker first" });
+      }
+      user.angelLiveEnabled = boolVal;
+    }
+
+    await user.save();
+
+    res.json({
+      ok: true,
+      angel: {
+        allowedMarginPct: user.angelAllowedMarginPct,
+        allowedMarginPercent: Math.round((user.angelAllowedMarginPct ?? 0) * 100),
+        liveEnabled: user.angelLiveEnabled
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 const settingsService = require("../services/settings.service");
 
-// 5. Get system settings
+// 6. Get system settings
 // GET /admin/system
 exports.getSystemSettings = async (req, res, next) => {
   try {
@@ -124,7 +178,7 @@ exports.getSystemSettings = async (req, res, next) => {
   }
 };
 
-// 6. Toggle system settings
+// 7. Toggle system settings
 // POST /admin/system
 // body: { key: "isPaperTradingActive", value: true/false }
 exports.updateSystemSetting = async (req, res, next) => {
@@ -142,4 +196,3 @@ exports.updateSystemSetting = async (req, res, next) => {
     next(err);
   }
 };
-

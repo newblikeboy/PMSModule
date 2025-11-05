@@ -1,18 +1,30 @@
 // routes/trade.routes.js
+"use strict";
+
 const express = require("express");
 const router = express.Router();
-const ctrl = require("../controllers/trade.controller");
 
-// 1. Check RSI signals and auto-create paper trades for new candidates
-router.post("/enter", ctrl.scanAndEnter);
+const authRequired = require("../middlewares/authRequired");
+const tradeCtrl = require("../controllers/trade.controller");
 
-// 2. Check targets/SL for OPEN trades and close them if hit
-router.post("/check-exit", ctrl.checkExits);
+// Auto-enter based on RSI signal
+// - Uses authenticated user by default (req.user)
+// - Admins may pass ?userId=... or { userId } in body for targeted runs
+router.post("/trade/enter-auto", authRequired, tradeCtrl.enterAuto);
 
-// 3. Get all trades (both OPEN and CLOSED)
-router.get("/all", ctrl.listTrades);
+// Check exits (TARGET/STOPLOSS) for open trades
+// - With ?userId -> single user
+// - Without -> all users who have OPEN trades
+router.post("/trade/check-exit", authRequired, tradeCtrl.checkExit);
 
-// 4. Manually close a specific trade
-router.post("/close/:id", ctrl.closeManual);
+// List trades (scoped to current user by default; admin may pass ?userId=...)
+router.get("/trade/all", authRequired, tradeCtrl.getAll);
+
+// Manually close a trade (owner or admin)
+router.post("/trade/close/:id", authRequired, tradeCtrl.closeManual);
+
+// Live PnL snapshot (unrealized + today's realized)
+// - Scoped to current user by default; admin may pass ?userId=...
+router.get("/trade/live-pnl", authRequired, tradeCtrl.livePnL);
 
 module.exports = router;

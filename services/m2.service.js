@@ -1,216 +1,199 @@
 "use strict";
 
 const { DateTime } = require("luxon");
-const fy = require("./fyersSdk"); // we already have this for history()
+const fy = require("./fyersSdk"); // history()
 const { calcRSI14FromCandles } = require("../utils/indicators");
 const { IST } = require("../utils/time");
 const M2Signal = require("../models/M2Signal");
-const m1Service = require("./m1.service"); // we'll reuse its getMovers()
+const m1Service = require("./m1.service"); // reuse getMovers()
 
-// Tunable concurrency (safe defaults)
-const SCAN_CONCURRENCY = 6;
-const DB_UPSERT_CONCURRENCY = 6;
+/* ======================= Config ======================= */
+const CONFIG = Object.freeze({
+  SCAN_CONCURRENCY: Number(process.env.M2_SCAN_CONCURRENCY) || 6,
+  DB_BULK_CHUNK: Number(process.env.M2_DB_BULK_CHUNK) || 500, // safety chunk if list is huge
+  RSI_MIN_CANDLES: Number(process.env.M2_RSI_MIN_CANDLES) || 16, // 14 + buffer
+  RSI_LOWER: Number(process.env.M2_RSI_LOWER) || 40,
+  RSI_UPPER: Number(process.env.M2_RSI_UPPER) || 50,
+  MOVERS_TOP_N: Number(process.env.M2_MOVERS_TOP_N) || 0, // 0 = all movers
+  HISTORY_LOOKBACK_DAYS: Number(process.env.M2_HISTORY_LOOKBACK_DAYS) || 2, // two days of 5m
+});
 
-/**
- * small concurrency pool: runs workerFn(item) for each item, at most `concurrency` in flight.
- */
+/* ======================= Small utils ======================= */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Stable concurrency pool with predictable parallelism */
 async function asyncPool(items, workerFn, concurrency = 5) {
-  const results = [];
+  if (!Array.isArray(items) || items.length === 0) return [];
+  if (concurrency < 1) concurrency = 1;
+
+  const ret = new Array(items.length);
+  let i = 0;
   const executing = new Set();
 
-  for (const item of items) {
-    const p = (async () => workerFn(item))();
-    results.push(p);
+  async function enqueue() {
+    if (i >= items.length) return;
+    const idx = i++;
+    const p = Promise.resolve()
+      .then(() => workerFn(items[idx], idx))
+      .then((v) => (ret[idx] = v))
+      .catch(() => (ret[idx] = undefined))
+      .finally(() => executing.delete(p));
+
     executing.add(p);
-
-    const cleanup = () => executing.delete(p);
-    p.then(cleanup, cleanup);
-
-    if (executing.size >= concurrency) {
-      // wait for any to finish
-      await Promise.race(executing);
-    }
+    if (executing.size >= concurrency) await Promise.race(executing);
+    return enqueue();
   }
 
-  return Promise.all(results);
+  const starters = Array.from({ length: Math.min(concurrency, items.length) }, enqueue);
+  await Promise.all(starters);
+  await Promise.all(executing);
+
+  return ret;
 }
 
-/**
- * Normalize candle shapes to a consistent array format:
- * preferred output candle: [timestamp, open, high, low, close, volume]
- *
- * Accepts:
- *  - arrays like [ts, o, h, l, c, v]
- *  - objects like { t, o, h, l, c, v } or { time, open, high, low, close, volume }
- */
+/** Coerce a value to finite number or null */
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Normalize heterogeneous candle shapes to [ts, o, h, l, c, v] with numbers */
 function normalizeCandles(rawCandles) {
   if (!Array.isArray(rawCandles)) return [];
 
-  return rawCandles.map((c) => {
+  const out = [];
+  for (const c of rawCandles) {
+    let ts, o, h, l, cl, v;
     if (Array.isArray(c)) {
-      // assume already in [ts, o, h, l, c, v] form (or similar)
-      // ensure length >= 5 and pad volume if missing
-      const ts = c[0];
-      const o = c[1];
-      const h = c[2];
-      const l = c[3];
-      const cl = c[4];
-      const v = c.length >= 6 ? c[5] : 0;
-      return [ts, o, h, l, cl, v];
+      ts = num(c[0]); o = num(c[1]); h = num(c[2]); l = num(c[3]); cl = num(c[4]); v = num(c[5] ?? 0) ?? 0;
     } else if (c && typeof c === "object") {
-      // object shapes: try common keys
-      const ts = c.t ?? c.time ?? c.timestamp ?? c[0] ?? null;
-      const o = c.o ?? c.open ?? c.openPrice ?? c[1] ?? null;
-      const h = c.h ?? c.high ?? c[2] ?? null;
-      const l = c.l ?? c.low ?? c[3] ?? null;
-      const cl = c.c ?? c.close ?? c.closePrice ?? c[4] ?? null;
-      const v = c.v ?? c.volume ?? 0;
-      return [ts, o, h, l, cl, v];
-    } else {
-      // unknown format: return a placeholder that will be filtered later
-      return [null, null, null, null, null, 0];
+      ts = num(c.t ?? c.time ?? c.timestamp ?? c[0]);
+      o = num(c.o ?? c.open ?? c.openPrice ?? c[1]);
+      h = num(c.h ?? c.high ?? c[2]);
+      l = num(c.l ?? c.low ?? c[3]);
+      cl = num(c.c ?? c.close ?? c.closePrice ?? c[4]);
+      v = num(c.v ?? c.volume) ?? 0;
     }
-  }).filter(c => Number.isFinite(Number(c[4]))); // keep only candles with valid close
+
+    if (cl == null || ts == null) continue; // need at least ts & close
+    out.push([ts, o ?? 0, h ?? 0, l ?? 0, cl, v]);
+  }
+
+  // sort by timestamp asc if not already
+  if (out.length > 1 && out[0][0] > out[out.length - 1][0]) {
+    out.sort((a, b) => a[0] - b[0]);
+  }
+  return out;
 }
 
-/**
- * Fetch last N minutes candles (for RSI)
- * Pulls last ~2 days of 5m candles (safe for RSI(14))
- */
+/* ======================= Data fetch ======================= */
 async function fetchRecent5MinCandles(symbol) {
-  try {
-    const nowIst = DateTime.now().setZone(IST);
-    const to = nowIst.toISODate(); // yyyy-MM-dd
-    const from = nowIst.minus({ days: 2 }).toISODate();
+  const nowIst = DateTime.now().setZone(IST);
+  const to = nowIst.toISODate();
+  const from = nowIst.minus({ days: CONFIG.HISTORY_LOOKBACK_DAYS }).toISODate();
 
+  try {
     const resp = await fy.getHistory({
       symbol,
       resolution: "5",
       range_from: from,
       range_to: to
     });
-
     const raw = resp?.candles ?? resp?.data ?? [];
-    const candles = normalizeCandles(raw);
-    return candles;
+    return normalizeCandles(raw);
   } catch (err) {
-    // bubble up / caller handles errors - but log for visibility
-    console.error("[M2] fetchRecent5MinCandles error for", symbol, err?.message || err);
+    // propagate; caller logs context with symbol
     throw err;
   }
 }
 
-/**
- * Core logic:
- * 1. Get movers from M1 (5%+ up)
- * 2. For each mover, compute RSI(14) on 5m data
- * 3. Save to DB (M2Signal)
- * 4. Return structured result
- */
+/* ======================= Core scan ======================= */
 async function scanRSIEntryZone() {
-  // get movers from m1
+  // 1) Pull movers from M1 (requires engine running)
   const m1Result = await m1Service.getMovers();
-  if (!m1Result || !m1Result.ok || !Array.isArray(m1Result.data) || m1Result.data.length === 0) {
+  if (!m1Result?.ok || !Array.isArray(m1Result.data) || m1Result.data.length === 0) {
     return { ok: true, data: [] };
   }
 
-  const movers = m1Result.data;
+  // Optionally limit to top-N movers (heaviest % change first)
+  const movers = CONFIG.MOVERS_TOP_N > 0
+    ? m1Result.data.slice(0, CONFIG.MOVERS_TOP_N)
+    : m1Result.data;
 
-  const out = [];
+  // 2) Per mover: fetch 5m candles → RSI(14) → build payload + doc
+  const processed = await asyncPool(
+    movers,
+    async (stock) => {
+      const symbol = stock.symbol;
+      try {
+        const candles = await fetchRecent5MinCandles(symbol);
+        if (!Array.isArray(candles) || candles.length < CONFIG.RSI_MIN_CANDLES) return null;
 
-  // worker processes one mover
-  async function worker(stock) {
-    const symbol = stock.symbol;
-    try {
-      const candles = await fetchRecent5MinCandles(symbol);
-      // require at least 20 (or some minimum) 5m candles for RSI14 (14 + some buffer)
-      if (!Array.isArray(candles) || candles.length < 16) {
-        // not enough candles — skip
+        // calcRSI14FromCandles expects [ts,o,h,l,c,v] arrays (close @ idx 4)
+        const rsi = await calcRSI14FromCandles(candles);
+        const r = num(rsi);
+        if (r == null) return null;
+
+        const inZone = r >= CONFIG.RSI_LOWER && r <= CONFIG.RSI_UPPER;
+
+        return {
+          doc: {
+            symbol,
+            rsi: r,
+            timeframe: "5m",
+            inEntryZone: inZone,
+            updatedAt: new Date()
+          },
+          payload: {
+            symbol,
+            rsi: r,
+            inEntryZone: inZone,
+            ltp: stock.ltp,
+            changePct: stock.changePct
+          }
+        };
+      } catch (err) {
+        console.error("[M2] RSI calc error for", symbol, err?.message || err);
         return null;
       }
+    },
+    CONFIG.SCAN_CONCURRENCY
+  );
 
-      // calcRSI14FromCandles might expect an array of candles (close at index 4).
-      // We pass normalized candles (array form). If your helper expects a different format,
-      // adjust it there; this normalized shape is standard.
-      const rsi = await calcRSI14FromCandles(candles);
+  // 3) Filter good results
+  const good = processed.filter(Boolean);
+  const out = good.map((g) => g.payload);
 
-      // if the indicator lib returns undefined/null or NaN, skip
-      if (rsi == null || !Number.isFinite(Number(rsi))) {
-        return null;
+  // 4) Persist using bulkWrite (efficient & atomic-ish per batch)
+  if (good.length) {
+    const ops = good.map(({ doc }) => ({
+      updateOne: {
+        filter: { symbol: doc.symbol },
+        update: { $set: doc },
+        upsert: true
       }
+    }));
 
-      const numericRsi = Number(rsi);
-      const inZone = numericRsi >= 40 && numericRsi <= 50;
-
-      // upsert in DB (we'll return and also persist later)
-      const doc = {
-        symbol,
-        rsi: numericRsi,
-        timeframe: "5m",
-        inEntryZone: inZone,
-        updatedAt: new Date()
-      };
-
-      return {
-        doc,
-        payload: {
-          symbol,
-          rsi: numericRsi,
-          inEntryZone: inZone,
-          ltp: stock.ltp,
-          changePct: stock.changePct
-        }
-      };
-    } catch (err) {
-      // If FYERS fails or calc fails, just skip symbol but log error
-      console.error("[M2] RSI calc error for", symbol, err?.message || err);
-      return null;
+    if (ops.length <= CONFIG.DB_BULK_CHUNK) {
+      try { await M2Signal.bulkWrite(ops, { ordered: false }); }
+      catch (e) { console.warn("[M2] bulkWrite failed:", e?.message || e); }
+    } else {
+      // safety chunking for extremely large lists
+      for (let i = 0; i < ops.length; i += CONFIG.DB_BULK_CHUNK) {
+        const chunk = ops.slice(i, i + CONFIG.DB_BULK_CHUNK);
+        try { await M2Signal.bulkWrite(chunk, { ordered: false }); }
+        catch (e) { console.warn("[M2] bulkWrite chunk failed:", e?.message || e); }
+        await sleep(5); // tiny breather for event loop fairness
+      }
     }
   }
 
-  // process movers with controlled concurrency
-  const processed = await asyncPool(movers, worker, SCAN_CONCURRENCY);
-
-  // filter out nulls and build DB upsert tasks
-  const upserts = [];
-  for (const p of processed) {
-    if (!p) continue;
-    upserts.push(p);
-    out.push(p.payload);
-  }
-
-  // Persist results to DB with controlled concurrency
-  await asyncPool(
-    upserts,
-    async (item) => {
-      try {
-        await M2Signal.findOneAndUpdate(
-          { symbol: item.doc.symbol },
-          item.doc,
-          { upsert: true }
-        );
-      } catch (err) {
-        console.warn("[M2] DB upsert failed for", item.doc.symbol, err?.message || err);
-      }
-    },
-    DB_UPSERT_CONCURRENCY
-  );
-
-  // sort: best candidates first
-  out.sort((a, b) => {
-    // priority 1: inEntryZone true first
-    if (a.inEntryZone && !b.inEntryZone) return -1;
-    if (!a.inEntryZone && b.inEntryZone) return 1;
-    // priority 2: lower RSI first (closer to oversold pullback)
-    return a.rsi - b.rsi;
-  });
-
+  // 5) Sort — inZone first, then lower RSI first
+  out.sort((a, b) => (b.inEntryZone - a.inEntryZone) || (a.rsi - b.rsi));
   return { ok: true, data: out };
 }
 
-/**
- * Get last saved signals from DB (without recomputing)
- */
+/* ======================= Read latest (no recompute) ======================= */
 async function getLatestSignalsFromDB() {
   const docs = await M2Signal.find().sort({ updatedAt: -1 }).limit(200).lean();
   return { ok: true, data: docs };
