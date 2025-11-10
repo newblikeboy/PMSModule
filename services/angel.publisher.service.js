@@ -122,6 +122,16 @@ function renderCallbackPage(res, { ok, message, tokens }) {
           if (el) {
             el.textContent = payload.message || "Angel login complete. You may close this tab.";
           }
+          if (payload.tokens && payload.tokens.tokenId) {
+            try {
+              localStorage.setItem("qp_angel_pending_token", payload.tokens.tokenId);
+            } catch (err) {
+              console.warn("Unable to persist Angel tokenId locally:", err);
+            }
+            setTimeout(function(){
+              window.location.replace("/app.html");
+            }, 800);
+          }
         }
       })();
     </script>
@@ -357,4 +367,3 @@ module.exports = {
   finalizeAngelTokens,
   welcome,
 };
-

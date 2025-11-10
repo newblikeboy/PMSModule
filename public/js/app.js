@@ -813,4 +813,18 @@
     loadDailyReport();
     loadTrades();
   }, 30000);
+
+  (async () => {
+    const pending = localStorage.getItem("qp_angel_pending_token");
+    if (pending) {
+      try {
+        const resp = await jgetAuth(`/user/angel/tokens/${pending}`);
+        if (resp && resp.ok && resp.tokens) {
+          await completeAngelConnect(resp.tokens);
+        }
+      } finally {
+        localStorage.removeItem("qp_angel_pending_token");
+      }
+    }
+  })();
 })();
