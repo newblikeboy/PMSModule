@@ -1,103 +1,87 @@
-// services/angel.trade.service.js
 "use strict";
-
-/**
- * Angel One Publisher trading (multi-user).
- * Reads the user's saved Publisher JWT from user.broker.creds.accessToken.
- *
- * Exposes:
- *   - getFunds(userId) -> { availableMargin }
- *   - placeMarketOrder({ userId, symbol, symboltoken, qty, side }) -> { ok, orderId, raw }
- */
 
 const axios = require("axios");
 const User = require("../models/User");
 
-const CFG = {
-  BASE: process.env.ANGEL_BASE || "https://apiconnect.angelbroking.com",
-  EXCHANGE: process.env.ANGEL_DEFAULT_EXCHANGE || "NSE",
-  PRODUCT: process.env.ANGEL_DEFAULT_PRODUCT || "INTRADAY",
-  VARIETY: process.env.ANGEL_DEFAULT_VARIETY || "NORMAL",
-};
+const BASE_URL = process.env.ANGEL_BASE_URL || "https://apiconnect.angelbroking.com";
+const ORDER_URL =
+  process.env.ANGEL_ORDER_URL ||
+  "https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/placeOrder";
 
-function headersFor(user) {
-  const apiKey = user?.broker?.creds?.apiKey;
-  const at = user?.broker?.creds?.accessToken;
-  if (!apiKey || !at) throw new Error("Angel auth missing for user (apiKey/accessToken)");
+function buildHeaders(apiKey, accessToken) {
+  if (!apiKey || !accessToken) throw new Error("Missing Angel credentials");
   return {
     "Content-Type": "application/json",
     Accept: "application/json",
+    Authorization: `Bearer ${accessToken}`,
     "X-UserType": "USER",
     "X-SourceID": "WEB",
     "X-PrivateKey": apiKey,
     "X-ClientLocalIP": "127.0.0.1",
     "X-ClientPublicIP": "127.0.0.1",
     "X-MACAddress": "AA-BB-CC-11-22-33",
-    Authorization: `Bearer ${at}`,
   };
 }
 
-function toTs(symbol) {
-  // accepts "NSE:SBIN-EQ" or "SBIN-EQ"
-  let s = String(symbol || "").trim().toUpperCase();
-  s = s.replace(/^NSE:/, "");
-  return s; // e.g., "SBIN-EQ"
+async function getUserCreds(userId) {
+  const user = await User.findById(userId).select("broker");
+  const creds = user?.broker?.creds || {};
+  if (!creds.accessToken) throw new Error("Angel access token missing");
+  return { user, creds };
 }
 
-// ------- Funds -------
 async function getFunds(userId) {
-  const user = await User.findById(userId);
-  if (!user) throw new Error("user not found");
-  const url = `${CFG.BASE}/rest/secure/angelbroking/user/v1/getRMS`;
-  const resp = await axios.get(url, { headers: headersFor(user), timeout: 9000 });
-  const data = resp?.data?.data || resp?.data || {};
-  const available =
-    Number(data.availablecash) ||
-    Number(data.net) ||
-    Number(data.available_margin) ||
-    Number(data.cash) ||
-    0;
-  return { availableMargin: available };
+  try {
+    const { creds } = await getUserCreds(userId);
+    const headers = buildHeaders(creds.apiKey, creds.accessToken);
+    const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/getFunds`;
+    const { data } = await axios.post(url, {}, { headers, timeout: 10000 });
+    const payload = data?.data || data || {};
+    const availableMargin =
+      Number(payload.availablecash) ||
+      Number(payload.availablecashcomponent) ||
+      Number(payload.cash) ||
+      0;
+    return { ok: true, availableMargin };
+  } catch (err) {
+    console.error("[angel.trade] getFunds error", err?.response?.data || err.message);
+    return { ok: false, availableMargin: 0 };
+  }
 }
 
-// ------- Place MARKET Order -------
 async function placeMarketOrder({ userId, symbol, symboltoken, qty, side }) {
-  const user = await User.findById(userId);
-  if (!user) throw new Error("user not found");
-  const ts = toTs(symbol);
-  if (!symboltoken) throw new Error("symboltoken required for Angel order");
-  if (!qty || qty < 1) throw new Error("qty must be >= 1");
-  const txn = String(side || "BUY").toUpperCase(); // BUY/SELL
+  try {
+    const { creds } = await getUserCreds(userId);
+    const headers = buildHeaders(creds.apiKey, creds.accessToken);
 
-  const body = {
-    variety: CFG.VARIETY,           // "NORMAL"
-    tradingsymbol: ts,              // "SBIN-EQ"
-    symboltoken,                    // e.g., "3045"
-    transactiontype: txn,           // "BUY" | "SELL"
-    exchange: CFG.EXCHANGE,         // "NSE"
-    ordertype: "MARKET",
-    producttype: CFG.PRODUCT,       // "INTRADAY"
-    duration: "DAY",
-    price: "0",
-    squareoff: "0",
-    stoploss: "0",
-    quantity: String(qty),
-  };
+    const body = {
+      exchange: "NSE",
+      tradingsymbol: symbol,
+      symboltoken: symboltoken,
+      transactiontype: side === "SELL" ? "SELL" : "BUY",
+      variety: "NORMAL",
+      ordertype: "MARKET",
+      producttype: "INTRADAY",
+      duration: "DAY",
+      quantity: Number(qty) || 1,
+    };
 
-  const url = `${CFG.BASE}/rest/secure/angelbroking/order/v1/placeOrder`;
-  const resp = await axios.post(url, body, { headers: headersFor(user), timeout: 12000 });
-
-  const orderId =
-    resp?.data?.data?.orderid ||
-    resp?.data?.data?.uniqueorderid ||
-    resp?.data?.orderid ||
-    resp?.data?.uniqueorderid ||
-    null;
-
-  return { ok: !!orderId, orderId, raw: resp?.data };
+    const { data } = await axios.post(ORDER_URL, body, { headers, timeout: 15000 });
+    return { ok: true, raw: data };
+  } catch (err) {
+    const resp = err?.response?.data;
+    console.error("[angel.trade] placeOrder error", resp || err.message);
+    const message =
+      resp?.message ||
+      resp?.info ||
+      err?.message ||
+      "Angel order placement failed";
+    return { ok: false, error: message };
+  }
 }
 
 module.exports = {
   getFunds,
   placeMarketOrder,
 };
+

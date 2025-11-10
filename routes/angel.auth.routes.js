@@ -1,15 +1,16 @@
-// routes/angel.auth.routes.js
 "use strict";
 
 const express = require("express");
 const router = express.Router();
 
 const authRequired = require("../middlewares/authRequired");
-const angelPub = require("../services/angel.publisher.service");
+const angelPublisher = require("../services/angel.publisher.service");
 
-// Require auth on login initiation (user must be logged in to start link flow).
-router.get("/auth/angel/login", authRequired, angelPub.startLogin);
-// Callback stays public because SmartAPI redirects without our Authorization header.
-router.get("/auth/angel/callback", angelPub.handleCallback);
+// Authed users can request a redirect (optional helper)
+router.get("/auth/angel/login", authRequired, angelPublisher.startLogin);
+
+// Angel redirects browser here (popup or same tab)
+router.get("/auth/angel/callback", angelPublisher.handleCallback);
 
 module.exports = router;
+
