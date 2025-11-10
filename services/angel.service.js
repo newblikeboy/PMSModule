@@ -1,113 +1,27 @@
-// routes/user.routes.js
-const express = require("express");
-const router = express.Router();
-const authRequired = require("../middlewares/authRequired");
+"use strict";
 
-const m2Service = require("../services/m2.service");
-const tradeEngine = require("../services/tradeEngine.service");
-const reportService = require("../services/report.service");
+/**
+ * Replace stubs with real Angel One SDK calls.
+ * Required by tradeEngine:
+ *  - getFunds(userId): { availableMargin: number }
+ *  - placeMarketOrder({ symbol, qty, side, userId }): { ok, orderId?, avgPrice? }
+ *  - closePositionMarket({ symbol, qty, side, userId }): { ok, orderId?, avgPrice? }
+ */
 
-const brokerCtrl = require("../controllers/broker.controller");
-const subCtrl = require("../controllers/subscription.controller");
-const angelPublisher = require("../services/angel.publisher.service");
+async function getFunds(userId = "default") {
+  // TODO: call Angel "Get Funds" endpoint for this user
+  return { availableMargin: 0 };
+}
 
+async function placeMarketOrder({ symbol, qty, side, userId = "default" }) {
+  // TODO: map to Angel tradingsymbol & place MARKET order
+  // return shape below
+  return { ok: true, orderId: "ANGEL-" + Date.now(), avgPrice: undefined };
+}
 
-// ---- PROFILE / PLAN / DASHBOARD DATA ----
+async function closePositionMarket({ symbol, qty, side = "SELL", userId = "default" }) {
+  // TODO: call Angel close position (or SELL market)
+  return placeMarketOrder({ symbol, qty, side, userId });
+}
 
-// Who am I / profile info
-router.get("/profile", authRequired, async (req, res) => {
-  const u = req.user;
-  res.json({
-    ok: true,
-    user: {
-      id: u._id,
-      name: u.name,
-      email: u.email,
-      phone: u.phone,
-      plan: u.plan,
-      planTier: u.planTier,
-      broker: {
-        connected: u.broker.connected,
-        brokerName: u.broker.brokerName
-      },
-      autoTradingEnabled: u.autoTradingEnabled,
-      angel: {
-        allowedMarginPct: u.angelAllowedMarginPct,
-        allowedMarginPercent: Math.round((u.angelAllowedMarginPct ?? 0) * 100),
-        liveEnabled: u.angelLiveEnabled,
-        brokerConnected: u.broker.connected && u.broker.brokerName === "ANGEL"
-      }
-    }
-  });
-});
-
-// Current plan status
-router.get("/plan/status", authRequired, subCtrl.getStatus);
-
-// Create upgrade intent (start upgrade flow)
-router.post("/plan/upgrade-intent", authRequired, subCtrl.createUpgradeIntent);
-
-// Confirm upgrade (finish upgrade flow -> becomes Paid)
-router.post("/plan/confirm", authRequired, subCtrl.confirmUpgrade);
-
-
-// ---- CORE DASHBOARD DATA ----
-
-// RSI pullback signals (opportunities)
-router.get("/signals", authRequired, async (req, res, next) => {
-  try {
-    const result = await m2Service.getLatestSignalsFromDB();
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Your trades (paper)
-router.get("/trades", authRequired, async (req, res, next) => {
-  try {
-    const result = await tradeEngine.getAllTrades();
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Today's performance (PnL summary)
-router.get("/report-today", authRequired, async (req, res, next) => {
-  try {
-    const result = await reportService.buildDailyReport();
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
-
-// ---- BROKER CONNECT FLOW ----
-
-// status (broker + automation)
-router.get("/broker/status", authRequired, brokerCtrl.getStatus);
-
-// connect/update broker creds
-router.post("/broker/connect", authRequired, brokerCtrl.connectBroker);
-
-// toggle automation
-router.post("/broker/automation", authRequired, brokerCtrl.setAutomation);
-
-// angel specific settings
-router.get("/angel/settings", authRequired, brokerCtrl.getAngelSettings);
-router.post("/angel/settings", authRequired, brokerCtrl.updateAngelSettings);
-router.get("/angel/login-link", authRequired, async (req, res) => {
-  try {
-    const url = await angelPublisher.buildLoginUrlForUserId(req.user._id);
-    res.json({ ok: true, url });
-  } catch (err) {
-    const msg = err?.message || "Unable to build login link";
-    const status = msg.includes("not found") ? 404 : msg.includes("required") ? 400 : 500;
-    res.status(status).json({ ok: false, error: msg });
-  }
-});
-
-
-module.exports = router;
+module.exports = { getFunds, placeMarketOrder, closePositionMarket };
