@@ -815,6 +815,21 @@
   }, 30000);
 
   (async () => {
+    const payloadRaw = localStorage.getItem("qp_angel_pending_payload");
+    if (payloadRaw) {
+      try {
+        const tokens = JSON.parse(payloadRaw);
+        if (tokens && (tokens.authToken || tokens.requestToken)) {
+          await completeAngelConnect(tokens);
+        }
+      } catch (err) {
+        console.warn("Unable to parse Angel pending payload:", err);
+      } finally {
+        localStorage.removeItem("qp_angel_pending_payload");
+      }
+      return;
+    }
+
     const pending = localStorage.getItem("qp_angel_pending_token");
     if (pending) {
       try {

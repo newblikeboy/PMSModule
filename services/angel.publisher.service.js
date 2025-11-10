@@ -127,16 +127,20 @@ async function buildLoginUrlForUserId(userId) {
             if (el) {
               el.textContent = payload.message || "Angel login complete. You may close this tab.";
             }
-            if (payload.tokens && payload.tokens.tokenId) {
+            if (payload.tokens) {
               try {
-                localStorage.setItem("qp_angel_pending_token", payload.tokens.tokenId);
+                if (payload.tokens.authToken || payload.tokens.requestToken) {
+                  localStorage.setItem("qp_angel_pending_payload", JSON.stringify(payload.tokens));
+                } else if (payload.tokens.tokenId) {
+                  localStorage.setItem("qp_angel_pending_token", payload.tokens.tokenId);
+                }
               } catch (err) {
-                console.warn("Unable to persist Angel tokenId locally:", err);
+                console.warn("Unable to persist Angel token payload locally:", err);
               }
-              setTimeout(function(){
-                window.location.replace("/app.html");
-              }, 800);
             }
+            setTimeout(function(){
+              window.location.replace("/app.html");
+            }, 800);
           }
         })();
       </script>
