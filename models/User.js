@@ -9,6 +9,11 @@ const BrokerCredsSchema = new mongoose.Schema(
     clientId: { type: String, default: "" },
     accessToken: { type: String, default: "" },   // Angel Publisher JWT or other broker token
     refreshToken: { type: String, default: "" },  // if your broker supports refresh
+    authToken: { type: String, default: "" },
+    feedToken: { type: String, default: "" },
+    clientCode: { type: String, default: "" },
+    exchangedAt: { type: Date },
+    exchangeMeta: { type: mongoose.Schema.Types.Mixed, default: null },
     note: { type: String, default: "" }
   },
   { _id: false }
@@ -73,9 +78,12 @@ userSchema.set("toJSON", {
     if (ret.broker && ret.broker.creds) {
       delete ret.broker.creds.accessToken;
       delete ret.broker.creds.refreshToken;
+      delete ret.broker.creds.authToken;
+      delete ret.broker.creds.feedToken;
       delete ret.broker.creds.apiKey;
       delete ret.broker.creds.clientId;
       delete ret.broker.creds.note;
+      delete ret.broker.creds.exchangeMeta;
     }
     return ret;
   }
