@@ -172,9 +172,14 @@
     if (!resp || !resp.ok) {
       alert(resp?.error || "Unable to generate Angel login link");
     } else {
-      window.open(resp.url, "_blank", "width=520,height=680");
       angelLinkAcknowledged = false;
-      startAngelLinkWatcher();
+      const popup = window.open(resp.url, "_blank", "width=520,height=680");
+      if (!popup || popup.closed) {
+        alert("Please enable pop-ups for this site and try again to complete Angel login.");
+      } else {
+        popup.focus();
+        startAngelLinkWatcher();
+      }
     }
 
     startAngelLoginBtn.textContent = originalText;

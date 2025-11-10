@@ -107,18 +107,28 @@ function renderCallbackPage(res, { ok, message, tokens }) {
   </head>
   <body>
     <h2>Angel One</h2>
-    <p class="status">${displayMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
+    <p class="status" id="callbackStatus">${displayMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
     <script>
       (function(){
         const payload = ${payloadJson};
+        const canNotify = !!(window.opener && !window.opener.closed);
         try {
-          if (window.opener && typeof window.opener.postMessage === "function") {
+          if (canNotify && typeof window.opener.postMessage === "function") {
             window.opener.postMessage(payload, "*");
           }
         } catch (err) {
           console.error("Angel callback postMessage error", err);
         }
-        setTimeout(function(){ window.close && window.close(); }, 1500);
+        if (canNotify) {
+          setTimeout(function(){
+            try { window.close(); } catch (_) {}
+          }, 1500);
+        } else {
+          var statusEl = document.getElementById("callbackStatus");
+          if (statusEl) {
+            statusEl.textContent = payload.message || "Angel login complete. You may close this tab.";
+          }
+        }
       })();
     </script>
   </body>
