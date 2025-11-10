@@ -15,7 +15,8 @@ const CONFIG = Object.freeze({
   RSI_LOWER: Number(process.env.M2_RSI_LOWER) || 40,
   RSI_UPPER: Number(process.env.M2_RSI_UPPER) || 50,
   MOVERS_TOP_N: Number(process.env.M2_MOVERS_TOP_N) || 0, // 0 = all movers
-  HISTORY_LOOKBACK_DAYS: Number(process.env.M2_HISTORY_LOOKBACK_DAYS) || 2, // two days of 5m
+  HISTORY_LOOKBACK_MINUTES: Number(process.env.M2_HISTORY_LOOKBACK_MINUTES) || 240, // 4 hours fallback
+  RSI_LOCAL_LIMIT: Number(process.env.M2_RSI_LOCAL_LIMIT) || 90,
 });
 
 /* ======================= Small utils ======================= */
@@ -87,23 +88,46 @@ function normalizeCandles(rawCandles) {
 }
 
 /* ======================= Data fetch ======================= */
-async function fetchRecent5MinCandles(symbol) {
+async function fetchMinuteCandlesFromHistory(symbol) {
   const nowIst = DateTime.now().setZone(IST);
+  const from = nowIst.minus({ minutes: CONFIG.HISTORY_LOOKBACK_MINUTES }).toISODate();
   const to = nowIst.toISODate();
-  const from = nowIst.minus({ days: CONFIG.HISTORY_LOOKBACK_DAYS }).toISODate();
+
+  const resp = await fy.getHistory({
+    symbol,
+    resolution: "1",
+    range_from: from,
+    range_to: to
+  });
+  const raw = resp?.candles ?? resp?.data ?? [];
+  return normalizeCandles(raw);
+}
+
+function mapLocalMinuteSeries(series = []) {
+  return series.map((c) => [
+    c.ts,
+    Number(c.o ?? c.open ?? c[1]) || 0,
+    Number(c.h ?? c.high ?? c[2]) || 0,
+    Number(c.l ?? c.low ?? c[3]) || 0,
+    Number(c.c ?? c.close ?? c[4]) || 0,
+    Number(c.v ?? c.volume ?? c[5]) || 0
+  ]);
+}
+
+async function fetchRecent1MinCandles(symbol) {
+  const localSeries = m1Service.getMinuteCandles
+    ? m1Service.getMinuteCandles(symbol, CONFIG.RSI_LOCAL_LIMIT)
+    : [];
+
+  if (Array.isArray(localSeries) && localSeries.length >= CONFIG.RSI_MIN_CANDLES) {
+    return mapLocalMinuteSeries(localSeries);
+  }
 
   try {
-    const resp = await fy.getHistory({
-      symbol,
-      resolution: "5",
-      range_from: from,
-      range_to: to
-    });
-    const raw = resp?.candles ?? resp?.data ?? [];
-    return normalizeCandles(raw);
+    return await fetchMinuteCandlesFromHistory(symbol);
   } catch (err) {
-    // propagate; caller logs context with symbol
-    throw err;
+    console.error("[M2] History fallback failed for", symbol, err?.message || err);
+    return [];
   }
 }
 
@@ -120,13 +144,13 @@ async function scanRSIEntryZone() {
     ? m1Result.data.slice(0, CONFIG.MOVERS_TOP_N)
     : m1Result.data;
 
-  // 2) Per mover: fetch 5m candles → RSI(14) → build payload + doc
+  // 2) Per mover: fetch 1m candles → RSI(14) → build payload + doc
   const processed = await asyncPool(
     movers,
     async (stock) => {
       const symbol = stock.symbol;
       try {
-        const candles = await fetchRecent5MinCandles(symbol);
+        const candles = await fetchRecent1MinCandles(symbol);
         if (!Array.isArray(candles) || candles.length < CONFIG.RSI_MIN_CANDLES) return null;
 
         // calcRSI14FromCandles expects [ts,o,h,l,c,v] arrays (close @ idx 4)
@@ -140,7 +164,7 @@ async function scanRSIEntryZone() {
           doc: {
             symbol,
             rsi: r,
-            timeframe: "5m",
+            timeframe: "1m",
             inEntryZone: inZone,
             updatedAt: new Date()
           },

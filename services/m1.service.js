@@ -20,6 +20,19 @@ const CONFIG = Object.freeze({
   HEARTBEAT_INTERVAL_MS: Number(process.env.M1_HEARTBEAT_INTERVAL_MS) || 10000,
   PREV_CLOSE_RETRY: Number(process.env.M1_PREV_CLOSE_RETRY) || 3,
   PREV_CLOSE_RETRY_BASE_MS: Number(process.env.M1_PREV_CLOSE_RETRY_BASE_MS) || 500,
+  QUOTE_BATCH_SIZE:
+    Number(
+      process.env.M1_QUOTE_BATCH_SIZE ??
+      process.env.M1_PREV_CLOSE_QUOTE_BATCH
+    ) || 40,
+  QUOTE_BATCH_DELAY_MS:
+    Number(
+      process.env.M1_QUOTE_BATCH_DELAY_MS ??
+      process.env.M1_PREV_CLOSE_QUOTE_DELAY_MS
+    ) || 120,
+  BOOTSTRAP_RUN_AT: process.env.M1_BOOTSTRAP_RUN_AT || "10:28",
+  BOOTSTRAP_MAX_WAIT_MS: Number(process.env.M1_BOOTSTRAP_MAX_WAIT_MS) || 120_000,
+  MAX_MINUTE_CANDLES: Number(process.env.M1_MAX_MINUTE_CANDLES) || 240,
   SOCKET_TOKEN_MIN_LENGTH: 20,
   ALERT_THRESHOLD_PCT: Number(process.env.M1_ALERT_THRESHOLD_PCT) || 5,
   MAX_RECONNECT_DELAY_MS: 60_000,
@@ -34,6 +47,11 @@ const {
   MAX_RECONNECT_DELAY_MS,
   MIN_ROTATE_MS,
   COMPACT_FLUSH_MS,
+  QUOTE_BATCH_SIZE,
+  QUOTE_BATCH_DELAY_MS,
+  BOOTSTRAP_RUN_AT,
+  BOOTSTRAP_MAX_WAIT_MS,
+  MAX_MINUTE_CANDLES,
 } = CONFIG;
 
 /* ======================= State ======================= */
@@ -44,6 +62,7 @@ let currentBatchIndex = 0;
 
 const prevCloseMap = new Map(); // symbol -> prevClose
 const ltpMap = new Map();       // symbol -> latest LTP
+const minuteSeries = new Map(); // symbol -> { candles: [...], lastBucketTs }
 
 let lastError = null;
 let lastHeartbeatTs = null;
@@ -86,6 +105,129 @@ const prettySymbol = (s) => {
 };
 
 const percentChange = (from, to) => ((to - from) / from) * 100;
+const toNumber = (val) => {
+  const num = Number(val);
+  return Number.isFinite(num) ? num : null;
+};
+
+function parseBootstrapTime(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d{1,2}):?(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+async function waitUntilBootstrapTimeIfNeeded() {
+  const target = parseBootstrapTime(BOOTSTRAP_RUN_AT);
+  if (!target) return;
+
+  const now = DateTime.now().setZone(IST);
+  let targetDt = now.set({
+    hour: target.hour,
+    minute: target.minute,
+    second: 0,
+    millisecond: 0,
+  });
+
+  if (now >= targetDt) return;
+
+  const diffMs = targetDt.toMillis() - now.toMillis();
+  if (diffMs <= 0) return;
+
+  if (diffMs > BOOTSTRAP_MAX_WAIT_MS) {
+    const minsAway = Math.round(diffMs / 60000);
+    console.log(
+      `[M1] Bootstrap target ${BOOTSTRAP_RUN_AT} IST is ${minsAway}m away. Run start closer to the target or increase M1_BOOTSTRAP_MAX_WAIT_MS. Proceeding immediately.`
+    );
+    return;
+  }
+
+  const mins = Math.floor(diffMs / 60000);
+  const secs = Math.round((diffMs % 60000) / 1000);
+  console.log(`[M1] Waiting ${mins}m ${secs}s for bootstrap window ${BOOTSTRAP_RUN_AT} IST before scanning quotes.`);
+  await sleep(diffMs);
+}
+
+function minuteBucket(tsMs) {
+  if (!Number.isFinite(tsMs)) tsMs = Date.now();
+  return Math.floor(tsMs / 60_000) * 60_000;
+}
+
+function ensureMinuteSeries(symbol) {
+  let entry = minuteSeries.get(symbol);
+  if (!entry) {
+    entry = { candles: [], lastBucketTs: null };
+    minuteSeries.set(symbol, entry);
+  }
+  return entry;
+}
+
+function updateMinuteSeries(symbol, price, tsMs = Date.now()) {
+  if (!symbol || !Number.isFinite(price)) return;
+  const bucketTs = minuteBucket(tsMs);
+  const entry = ensureMinuteSeries(symbol);
+
+  let candle = entry.candles[entry.candles.length - 1];
+  if (!candle || candle.ts !== bucketTs) {
+    candle = { ts: bucketTs, o: price, h: price, l: price, c: price, v: 1 };
+    entry.candles.push(candle);
+    entry.lastBucketTs = bucketTs;
+    if (entry.candles.length > MAX_MINUTE_CANDLES) {
+      entry.candles.splice(0, entry.candles.length - MAX_MINUTE_CANDLES);
+    }
+  } else {
+    candle.h = Math.max(candle.h, price);
+    candle.l = Math.min(candle.l, price);
+    candle.c = price;
+    candle.v += 1;
+  }
+}
+
+function seedMinuteSeries(symbol, price, tsMs = Date.now()) {
+  if (!symbol || !Number.isFinite(price)) return;
+  const entry = ensureMinuteSeries(symbol);
+  if (!entry.candles.length) {
+    updateMinuteSeries(symbol, price, tsMs);
+  }
+}
+
+function getMinuteCandles(symbol, limit = 60) {
+  if (!symbol) return [];
+  const entry = minuteSeries.get(symbol);
+  if (!entry || !entry.candles.length) return [];
+  if (!limit || limit >= entry.candles.length) {
+    return entry.candles.slice();
+  }
+  return entry.candles.slice(entry.candles.length - limit);
+}
+
+function extractTickTimestamp(payload) {
+  if (!payload || typeof payload !== "object") return Date.now();
+  const nested = payload.v || payload.V || {};
+  const raw =
+    payload.timestamp ??
+    payload.ts ??
+    payload.tt ??
+    payload.t ??
+    payload.time ??
+    payload.exch_time ??
+    payload.exchange_time ??
+    nested.tt ??
+    nested.timestamp ??
+    null;
+
+  if (raw == null) return Date.now();
+  let num = Number(raw);
+  if (!Number.isFinite(num)) return Date.now();
+  if (num > 1e12) return num;
+  if (num > 1e9) return num * 1000;
+  return num * 1000;
+}
 
 /** Small, stable concurrency pool */
 async function asyncPool(items, workerFn, concurrency = 5) {
@@ -163,7 +305,94 @@ async function loadUniverse() {
   }
 }
 
-/* ======================= Prev Close ======================= */
+/* ======================= Prev Close / Quote Snapshots ======================= */
+function extractPrevCloseFromQuote(rawQuote = {}) {
+  if (!rawQuote || typeof rawQuote !== "object") return null;
+  const nested = rawQuote.v || rawQuote.V || rawQuote.quote || rawQuote.q || {};
+  const candidates = [
+    rawQuote.prev_close_price,
+    rawQuote.prevClosePrice,
+    rawQuote.prevClose,
+    rawQuote.prev_price,
+    rawQuote.prevPrice,
+    rawQuote.previous_close_price,
+    rawQuote.pc,
+    rawQuote.c,
+    rawQuote.close,
+    nested.prev_close_price,
+    nested.prevPrice,
+    nested.prev_price,
+    nested.prevClose,
+    nested.pc,
+  ];
+
+  for (const candidate of candidates) {
+    const num = toNumber(candidate);
+    if (num != null && num > 0) return num;
+  }
+  return null;
+}
+
+function canonicalSymbolFromQuote(rawQuote = {}, fallback) {
+  const rawSymbol =
+    rawQuote.symbol ||
+    rawQuote.code ||
+    rawQuote.s ||
+    rawQuote.n ||
+    fallback;
+  if (!rawSymbol) return null;
+  if (typeof fy.toFyersSymbol === "function") {
+    return fy.toFyersSymbol(rawSymbol);
+  }
+  const s = String(rawSymbol).trim();
+  if (!s) return null;
+  if (/^NSE:/i.test(s)) return s;
+  return `NSE:${s.replace(/-EQ$/i, "")}-EQ`;
+}
+
+function extractChangePercentFromQuote(rawQuote = {}, fallback) {
+  const nested = rawQuote.v || rawQuote.V || rawQuote.quote || rawQuote.q || {};
+  const candidates = [
+    rawQuote.chp,
+    rawQuote.chgPct,
+    rawQuote.changePercent,
+    rawQuote.pChange,
+    rawQuote.perChange,
+    nested.chp,
+    nested.chgPct,
+    nested.changePercent,
+    nested.pChange,
+    fallback
+  ];
+  for (const candidate of candidates) {
+    const num = toNumber(candidate);
+    if (num != null) return num;
+  }
+  return null;
+}
+
+function extractLtpFromQuote(rawQuote = {}, fallback) {
+  const nested = rawQuote.v || rawQuote.V || rawQuote.quote || rawQuote.q || {};
+  const candidates = [
+    rawQuote.ltp,
+    rawQuote.lt,
+    rawQuote.last_price,
+    rawQuote.price,
+    rawQuote.c,
+    rawQuote.lp,
+    nested.lp,
+    nested.ltp,
+    nested.last_price,
+    nested.price,
+    fallback
+  ];
+  for (const candidate of candidates) {
+    const num = toNumber(candidate);
+    if (num != null) return num;
+  }
+  return null;
+}
+
 async function fetchPrevClose(symbolFyersFormat) {
   for (let attempt = 1; attempt <= CONFIG.PREV_CLOSE_RETRY; attempt++) {
     try {
@@ -203,33 +432,178 @@ async function fetchPrevClose(symbolFyersFormat) {
   return null;
 }
 
-async function warmupPrevCloses(symbols) {
-  prevCloseMap.clear();
+function normalizeQuoteSnapshot(quote) {
+  if (!quote) return null;
+  const raw = quote.raw || {};
+  const symbol = canonicalSymbolFromQuote(raw, quote.symbol);
+  if (!symbol) return null;
 
-  const results = await asyncPool(
+  return {
+    symbol,
+    prevClose: extractPrevCloseFromQuote(raw),
+    ltp: extractLtpFromQuote(raw, quote.ltp),
+    changePct: extractChangePercentFromQuote(raw, quote.changePercent),
+    raw,
+  };
+}
+
+async function fetchQuoteSnapshots(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return [];
+
+  const snapshots = [];
+  const chunkSize = Math.max(1, QUOTE_BATCH_SIZE || 40);
+
+  for (let i = 0; i < symbols.length; i += chunkSize) {
+    const chunk = symbols.slice(i, i + chunkSize);
+    try {
+      const quotes = await fy.getQuotes(chunk);
+      if (Array.isArray(quotes)) {
+        for (const quote of quotes) {
+          const snap = normalizeQuoteSnapshot(quote);
+          if (snap) snapshots.push(snap);
+        }
+      }
+    } catch (err) {
+      lastError = err?.message || String(err);
+      console.warn(`[fetchQuoteSnapshots] Batch failed (${chunk.length} symbols): ${lastError}`);
+    }
+
+    if (QUOTE_BATCH_DELAY_MS > 0 && i + chunkSize < symbols.length) {
+      await sleep(QUOTE_BATCH_DELAY_MS);
+    }
+  }
+
+  return snapshots;
+}
+
+function hydrateFromQuoteSnapshots(snapshots = []) {
+  let prevLoaded = 0;
+  let ltpLoaded = 0;
+
+  for (const snap of snapshots) {
+    if (!snap?.symbol) continue;
+
+    if (Number.isFinite(snap.prevClose) && snap.prevClose > 0) {
+      if (!prevCloseMap.has(snap.symbol)) prevLoaded += 1;
+      prevCloseMap.set(snap.symbol, snap.prevClose);
+    }
+
+    if (Number.isFinite(snap.ltp) && snap.ltp > 0) {
+      ltpMap.set(snap.symbol, snap.ltp);
+      ltpLoaded += 1;
+      seedMinuteSeries(snap.symbol, snap.ltp, extractTickTimestamp(snap.raw || {}));
+    }
+  }
+
+  return { prevLoaded, ltpLoaded };
+}
+
+async function backfillPrevCloseWithHistory(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return 0;
+  let loaded = 0;
+
+  await asyncPool(
     symbols,
     async (sym) => {
       const pc = await fetchPrevClose(sym);
       if (pc != null) {
+        if (!prevCloseMap.has(sym)) loaded += 1;
         prevCloseMap.set(sym, pc);
-        return { symbol: sym, prevClose: pc };
       }
       return null;
     },
-    PREV_CLOSE_CONCURRENCY
+    Math.max(1, Math.min(3, PREV_CLOSE_CONCURRENCY))
   );
+
+  return loaded;
+}
+
+async function warmupPrevCloses(symbols) {
+  prevCloseMap.clear();
+  ltpMap.clear();
+  minuteSeries.clear();
+
+  if (!Array.isArray(symbols) || symbols.length === 0) return;
+
+  const snapshots = await fetchQuoteSnapshots(symbols);
+  hydrateFromQuoteSnapshots(snapshots);
+
+  const missingSymbols = symbols.filter((sym) => !prevCloseMap.has(sym));
+  let fallbackLoaded = 0;
+  if (missingSymbols.length) {
+    console.warn(`[M1] PrevClose quotes missing ${missingSymbols.length}. Falling back to history (slow).`);
+    fallbackLoaded = await backfillPrevCloseWithHistory(missingSymbols);
+  }
 
   const loadedCount = prevCloseMap.size;
   const totalCount = symbols.length;
 
-  const sample = results
-    .filter(Boolean)
+  const sample = Array.from(prevCloseMap.entries())
     .slice(0, 8)
-    .map((r) => `${prettySymbol(r.symbol)}:${r.prevClose}`)
+    .map(([sym, value]) => `${prettySymbol(sym)}:${value}`)
     .join(", ");
 
-  console.log(`[M1] PrevClose warmup: ${loadedCount}/${totalCount}${sample ? ` | ${sample}` : ""}`);
+  const parts = [
+    `${loadedCount}/${totalCount}`,
+    `quotes=${snapshots.length}`,
+    `history=${fallbackLoaded}`
+  ];
+
+  console.log(`[M1] PrevClose warmup: ${parts.join(" | ")}${sample ? ` | ${sample}` : ""}`);
   if (!loadedCount) console.warn("[M1] No prevClose values fetched!");
+}
+
+async function bootstrapMoversViaQuotes(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return [];
+
+  await waitUntilBootstrapTimeIfNeeded();
+
+  console.log(`[M1] Quote bootstrap scanning ${symbols.length} symbols (batch=${QUOTE_BATCH_SIZE}).`);
+  const startedAt = Date.now();
+
+  prevCloseMap.clear();
+  ltpMap.clear();
+  minuteSeries.clear();
+
+  const snapshots = await fetchQuoteSnapshots(symbols);
+  hydrateFromQuoteSnapshots(snapshots);
+
+  const missingSymbols = symbols.filter((sym) => !prevCloseMap.has(sym));
+  if (missingSymbols.length) {
+    console.log(`[M1] Quote bootstrap missing prevClose for ${missingSymbols.length} symbols. Falling back to history.`);
+    await backfillPrevCloseWithHistory(missingSymbols);
+  }
+
+  const moverMap = new Map();
+  for (const snap of snapshots) {
+    if (!snap?.symbol) continue;
+    const prevClose = snap.prevClose ?? prevCloseMap.get(snap.symbol) ?? null;
+    const ltp = snap.ltp ?? ltpMap.get(snap.symbol) ?? null;
+    let changePct = Number(snap.changePct);
+    if (!Number.isFinite(changePct) && Number.isFinite(prevClose) && Number.isFinite(ltp) && prevClose > 0) {
+      changePct = percentChange(prevClose, ltp);
+    }
+    if (!Number.isFinite(changePct)) continue;
+    moverMap.set(snap.symbol, {
+      symbol: snap.symbol,
+      prevClose,
+      ltp,
+      changePct,
+    });
+  }
+
+  const movers = Array.from(moverMap.values()).filter(
+    (m) => Number.isFinite(m.changePct) && m.changePct >= CONFIG.ALERT_THRESHOLD_PCT
+  );
+  movers.sort((a, b) => b.changePct - a.changePct);
+
+  await persistMovers(movers);
+
+  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(
+    `[M1] Quote bootstrap complete in ${elapsedSec}s | movers=${movers.length} | prevClose=${prevCloseMap.size} | ltp=${ltpMap.size}`
+  );
+  return movers;
 }
 
 /* ======================= Socket ======================= */
@@ -321,6 +695,8 @@ async function ensureSocketConnected() {
 
         const num = Number(ltp);
         ltpMap.set(sym, num);
+        const tickTs = extractTickTimestamp(t);
+        updateMinuteSeries(sym, num, tickTs);
 
         // threshold alert (deduped)
         const pc = prevCloseMap.get(sym);
@@ -470,20 +846,57 @@ function computeMovers(thresholdPct = CONFIG.ALERT_THRESHOLD_PCT) {
   return movers;
 }
 
+async function persistMovers(movers = []) {
+  if (!Array.isArray(movers) || !movers.length) return;
+
+  await asyncPool(
+    movers,
+    async (m) => {
+      try {
+        await M1Mover.findOneAndUpdate(
+          { symbol: m.symbol },
+          { ...m, capturedAt: new Date() },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.warn("[persistMovers] DB upsert fail for", m.symbol, err?.message || err);
+        lastError = err?.message || String(err);
+      }
+    },
+    DB_UPSERT_CONCURRENCY
+  );
+}
+
 /* ======================= Public Actions ======================= */
 async function startEngine() {
   if (engineOn) return { ok: true, msg: "already running" };
   console.log("[M1] Starting engine...");
 
-  universeSymbols = await loadUniverse();
-  if (!universeSymbols.length) {
+  const universe = await loadUniverse();
+  if (!universe.length) {
     lastError = "Universe load failed or empty";
     console.error("[M1] Universe empty, aborting start");
     return { ok: false, error: lastError };
   }
 
+  universeSymbols = universe;
   currentBatchIndex = 0;
-  await warmupPrevCloses(universeSymbols);
+  let moversFromBootstrap = [];
+  try {
+    moversFromBootstrap = await bootstrapMoversViaQuotes(universeSymbols);
+  } catch (err) {
+    console.error("[M1] Quote bootstrap failed:", err?.message || err);
+  }
+
+  if (moversFromBootstrap?.length) {
+    universeSymbols = moversFromBootstrap.map((m) => m.symbol);
+    console.log(
+      `[M1] Live socket universe limited to ${universeSymbols.length} movers (>= ${CONFIG.ALERT_THRESHOLD_PCT}% change).`
+    );
+  } else {
+    console.log("[M1] Bootstrap yielded no movers. Falling back to full-universe warmup.");
+    await warmupPrevCloses(universeSymbols);
+  }
 
   await ensureSocketConnected();
 
@@ -530,6 +943,7 @@ async function stopEngine() {
   safeCloseSocket();
 
   prevCloseMap.clear();
+  minuteSeries.clear();
   // keep ltpMap for post-mortem if needed
   console.log("[M1] Engine stopped.");
   return { ok: true, msg: "stopped" };
@@ -540,22 +954,7 @@ async function getMovers() {
 
   const movers = computeMovers(CONFIG.ALERT_THRESHOLD_PCT);
 
-  await asyncPool(
-    movers,
-    async (m) => {
-      try {
-        await M1Mover.findOneAndUpdate(
-          { symbol: m.symbol },
-          { ...m, capturedAt: new Date() },
-          { upsert: true }
-        );
-      } catch (err) {
-        console.warn("[getMovers] DB upsert fail for", m.symbol, err?.message || err);
-        lastError = err?.message || String(err);
-      }
-    },
-    DB_UPSERT_CONCURRENCY
-  );
+  await persistMovers(movers);
 
   return { ok: true, count: movers.length, data: movers };
 }
@@ -626,4 +1025,5 @@ module.exports = {
   getStatus,
   _getLtpSnapshot,
   _getUniverse,
+  getMinuteCandles,
 };

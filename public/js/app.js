@@ -10,6 +10,10 @@
   };
 
   let currentUserProfile = null;
+  let angelLinkInProgress = false;
+  let angelLinkPollTimer = null;
+  let angelLinkDeadline = 0;
+  let angelLinkAcknowledged = false;
 
   // ----------------------------------------
   // Auth guard
@@ -169,10 +173,129 @@
       alert(resp?.error || "Unable to generate Angel login link");
     } else {
       window.open(resp.url, "_blank", "width=520,height=680");
+      angelLinkAcknowledged = false;
+      startAngelLinkWatcher();
     }
 
     startAngelLoginBtn.textContent = originalText;
     startAngelLoginBtn.disabled = false;
+  });
+
+  function notifyAngelLinked(message) {
+    alert(message || "Angel account linked successfully.");
+  }
+
+  function acknowledgeAngelLink(message) {
+    if (angelLinkAcknowledged) return;
+    angelLinkAcknowledged = true;
+    stopAngelLinkWatcher();
+    notifyAngelLinked(message || "Angel account linked successfully.");
+  }
+
+  function stopAngelLinkWatcher() {
+    if (angelLinkPollTimer) {
+      clearTimeout(angelLinkPollTimer);
+      angelLinkPollTimer = null;
+    }
+    angelLinkInProgress = false;
+    angelLinkDeadline = 0;
+  }
+
+  async function pollAngelLinkStatus() {
+    if (!angelLinkInProgress) return;
+    if (angelLinkDeadline && Date.now() > angelLinkDeadline) {
+      stopAngelLinkWatcher();
+      return;
+    }
+    try {
+      const profile = await loadProfile();
+      const broker = profile?.broker || {};
+      if (broker.connected && (broker.brokerName || "").toUpperCase() === "ANGEL") {
+        acknowledgeAngelLink();
+        return;
+      }
+    } catch (err) {
+      console.warn("Angel link poll failed:", err);
+    }
+    angelLinkPollTimer = setTimeout(pollAngelLinkStatus, 4000);
+  }
+
+  function startAngelLinkWatcher() {
+    stopAngelLinkWatcher();
+    angelLinkInProgress = true;
+    angelLinkDeadline = Date.now() + 2 * 60 * 1000;
+    pollAngelLinkStatus();
+  }
+
+  async function completeAngelConnect(tokens) {
+    try {
+      const resp = await jpostAuth("/user/angel/complete", {
+        authToken: tokens.authToken || tokens.auth_token || null,
+        requestToken: tokens.requestToken || tokens.request_token || null,
+        feedToken: tokens.feedToken || tokens.feed_token || null,
+        refreshToken: tokens.refreshToken || tokens.refresh_token || null,
+        tokenId: tokens.tokenId || null // Include tokenId for fallback
+      });
+
+      if (!resp || !resp.ok) {
+        alert(resp?.error || "Angel link failed. Please retry.");
+        return;
+      }
+
+      updateAngelUI(resp.angel || {});
+      await loadProfile();
+      acknowledgeAngelLink("Angel account linked successfully.");
+    } catch (err) {
+      console.error("Angel completion error:", err);
+      alert("Unexpected error completing Angel link. Please retry.");
+    }
+  }
+
+  window.addEventListener("message", async (event) => {
+    const data = event?.data;
+    if (!data || data.provider !== "angel") return;
+    if (!data.ok) {
+      alert(data?.message || "Angel login was cancelled or failed.");
+      return;
+    }
+
+    const tokens = data.tokens || {};
+
+    // If postMessage succeeded, use the tokens directly
+    if (tokens.authToken || tokens.requestToken) {
+      await completeAngelConnect(tokens);
+      return;
+    }
+
+    if (tokens.completed) {
+      await loadProfile();
+      acknowledgeAngelLink(data.message || "Angel account linked successfully.");
+      return;
+    }
+
+    if (tokens.tokenId) {
+      // If postMessage failed, fetch tokens from server using tokenId
+      try {
+        const resp = await jgetAuth(`/user/angel/tokens/${tokens.tokenId}`);
+        if (resp && resp.ok && resp.tokens) {
+          await completeAngelConnect(resp.tokens);
+        } else {
+          alert("Failed to retrieve tokens from server. Please retry.");
+        }
+      } catch (err) {
+        console.error("Error fetching stored tokens:", err);
+        alert("Failed to retrieve tokens from server. Please retry.");
+      }
+      return;
+    }
+
+    if (data.ok) {
+      await loadProfile();
+      notifyAngelLinked(data.message || "Angel account linked successfully.");
+      return;
+    }
+
+    alert("Angel login did not return valid tokens. Please retry.");
   });
 
   angelMarginForm?.addEventListener("submit", async (event) => {
@@ -453,7 +576,7 @@
 
   async function loadProfile() {
     const profile = await jgetAuth("/user/profile");
-    if (!profile || !profile.ok) return;
+    if (!profile || !profile.ok) return currentUserProfile;
 
     const user = profile.user || {};
     currentUserProfile = user;
@@ -477,6 +600,7 @@
     profileInitial && (profileInitial.textContent = initial);
 
     updateAngelUI(user.angel || {});
+    return user;
   }
 
   // ----------------------------------------
@@ -685,4 +809,3 @@
     loadTrades();
   }, 30000);
 })();
-

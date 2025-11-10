@@ -19,6 +19,8 @@ const User = require("../models/User");
 
 // Temporary storage for tokens when postMessage fails
 const tempTokens = new Map();
+const pendingAngelFlows = new Map();
+const FLOW_TTL_MS = 15 * 60 * 1000;
 
 const CFG = {
   API_KEY: process.env.ANGEL_API_KEY,
@@ -48,12 +50,15 @@ async function buildLoginUrlForUserId(userId) {
   const user = await User.findById(id);
   if (!user) throw new Error("user not found");
 
+  const flowId = registerFlow(id);
+
   const loginUrl = new URL(CFG.PUBLISHER_LOGIN);
   loginUrl.searchParams.set("api_key", CFG.API_KEY);
-  loginUrl.searchParams.set("redirect_url", CFG.REDIRECT);
-  // Helpful hints (Angel typically strips these, but no harm keeping them)
-  loginUrl.searchParams.set("state", id);
-  loginUrl.searchParams.set("uid", id);
+  loginUrl.searchParams.set("state", flowId);
+
+  const redirectUrl = new URL(CFG.REDIRECT);
+  redirectUrl.searchParams.set("flow", flowId);
+  loginUrl.searchParams.set("redirect_url", redirectUrl.toString());
   return loginUrl.toString();
 }
 
@@ -120,6 +125,20 @@ function renderCallbackPage(res, { ok, message, tokens }) {
 </html>`);
 }
 
+function registerFlow(userId) {
+  const flowId = crypto.randomUUID();
+  pendingAngelFlows.set(flowId, { userId: String(userId), createdAt: Date.now() });
+  setTimeout(() => pendingAngelFlows.delete(flowId), FLOW_TTL_MS).unref?.();
+  return flowId;
+}
+
+function consumeFlow(flowId) {
+  if (!flowId) return null;
+  const entry = pendingAngelFlows.get(flowId);
+  if (entry) pendingAngelFlows.delete(flowId);
+  return entry;
+}
+
 async function handleCallback(req, res) {
   console.info("[angel.publisher] callback hit", { query: req.query });
   ensureConfig();
@@ -140,6 +159,29 @@ async function handleCallback(req, res) {
 
   const decoded = decodeJwt(authToken);
   const extractedRequestToken = decoded?.token ? String(decoded.token) : requestToken;
+  const flowId = String(req.query.flow || req.query.state || "");
+  const flowEntry = consumeFlow(flowId);
+
+  if (flowEntry) {
+    try {
+      await finalizeAngelTokens({
+        userId: flowEntry.userId,
+        authToken,
+        requestToken: extractedRequestToken,
+        feedToken,
+        refreshToken,
+      });
+
+      return renderCallbackPage(res, {
+        ok: true,
+        message: "Angel account linked successfully. You can close this window.",
+        tokens: { completed: true, flowId },
+      });
+    } catch (err) {
+      console.error("[angel.callback] Flow finalization failed:", err?.message || err);
+      // Fall through to postMessage fallback
+    }
+  }
 
   // If state (userId) is present, try to save directly for that user
   if (state) {
@@ -313,59 +355,17 @@ async function completeFromClient(req, res) {
       tempTokens.delete(tokenId); // Remove after use
     }
 
-    const tokenForExchange = tokens.authToken || tokens.requestToken;
-    if (!tokenForExchange) {
-      return res.status(400).json({ ok: false, error: "authToken or requestToken required" });
-    }
-
-    console.log(`[angel.complete] Starting exchange for user ${userId}, has authToken: ${!!tokens.authToken}, has requestToken: ${!!tokens.requestToken}`);
-
-    const exchange = await exchangeAngelToken({
-      token: tokenForExchange,
-      isAuthToken: Boolean(tokens.authToken),
+    const result = await finalizeAngelTokens({
+      userId,
+      authToken: tokens.authToken,
+      requestToken: tokens.requestToken,
+      feedToken: tokens.feedToken,
+      refreshToken: tokens.refreshToken,
     });
-
-    console.log(`[angel.complete] Exchange successful, accessToken: ${!!exchange.accessToken}`);
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ ok: false, error: "User not found" });
-
-    const decoded = decodeJwt(tokens.authToken);
-    const clientCode = decoded?.username || user.broker?.creds?.clientCode || null;
-
-    console.log(`[angel.complete] Decoded clientCode: ${clientCode}`);
-
-    user.broker = user.broker || {};
-    user.broker.brokerName = "ANGEL";
-    user.broker.connected = true;
-    user.broker.creds = {
-      ...(user.broker.creds || {}),
-      apiKey: CFG.API_KEY,
-      accessToken: exchange.accessToken,
-      refreshToken: exchange.refreshToken || tokens.refreshToken || null,
-      authToken: tokens.authToken || null,
-      feedToken: tokens.feedToken || null,
-      clientCode: clientCode,
-      exchangedAt: new Date().toISOString(),
-      exchangeMeta: exchange.raw || null,
-    };
-
-    await user.save();
-
-    console.log(`[angel.complete] User saved successfully`);
 
     return res.json({
       ok: true,
-      angel: {
-        brokerConnected: true,
-        brokerName: "ANGEL",
-        clientCode,
-        allowedMarginPercent:
-          typeof user.angelAllowedMarginPct === "number"
-            ? Math.round(user.angelAllowedMarginPct * 100)
-            : null,
-        liveEnabled: !!user.angelLiveEnabled,
-      },
+      angel: result.angel,
     });
   } catch (err) {
     console.error("[angel.publisher] complete error", {
@@ -375,6 +375,60 @@ async function completeFromClient(req, res) {
     });
     return res.status(500).json({ ok: false, error: "Angel token exchange failed" });
   }
+}
+
+async function finalizeAngelTokens({ userId, authToken, requestToken, feedToken, refreshToken }) {
+  const tokenForExchange = authToken || requestToken;
+  if (!tokenForExchange) {
+    throw new Error("authToken or requestToken required");
+  }
+
+  console.log(
+    `[angel.finalize] Exchanging tokens for user ${userId}, hasAuth=${!!authToken}, hasRequest=${!!requestToken}`
+  );
+
+  const exchange = await exchangeAngelToken({
+    token: tokenForExchange,
+    isAuthToken: Boolean(authToken),
+  });
+
+  const user = await User.findById(userId);
+  if (!user) throw new Error("User not found");
+
+  const decoded = decodeJwt(authToken);
+  const clientCode = decoded?.username || user.broker?.creds?.clientCode || null;
+
+  user.broker = user.broker || {};
+  user.broker.brokerName = "ANGEL";
+  user.broker.connected = true;
+  user.broker.creds = {
+    ...(user.broker.creds || {}),
+    apiKey: CFG.API_KEY,
+    accessToken: exchange.accessToken,
+    refreshToken: exchange.refreshToken || refreshToken || null,
+    authToken: authToken || null,
+    feedToken: feedToken || null,
+    clientCode,
+    exchangedAt: new Date().toISOString(),
+    exchangeMeta: exchange.raw || null,
+  };
+
+  await user.save();
+  console.log(`[angel.finalize] User ${userId} updated with Angel tokens (clientCode: ${clientCode || "n/a"})`);
+
+  return {
+    clientCode,
+    angel: {
+      brokerConnected: true,
+      brokerName: "ANGEL",
+      clientCode,
+      allowedMarginPercent:
+        typeof user.angelAllowedMarginPct === "number"
+          ? Math.round(user.angelAllowedMarginPct * 100)
+          : null,
+      liveEnabled: !!user.angelLiveEnabled,
+    },
+  };
 }
 
 async function getStoredTokens(req, res) {
@@ -403,6 +457,7 @@ module.exports = {
   startLogin,
   handleCallback,
   buildLoginUrlForUserId,
+  finalizeAngelTokens,
   completeFromClient,
   getStoredTokens,
   welcome,
