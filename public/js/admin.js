@@ -525,9 +525,40 @@
     }
   }
 
+  async function exchangeFyersAuthCode() {
+    const input = $("#fyersAuthCodeInput");
+    const msg = $("#fyersStatusMsg");
+    if (!input || !msg) return;
+
+    const authCode = input.value.trim();
+    if (!authCode) {
+      msg.textContent = "Enter the auth_code first.";
+      msg.style.color = "#ff5f5f";
+      return;
+    }
+
+    msg.textContent = "Exchanging auth_code for tokens...";
+    msg.style.color = "var(--admin-text-soft)";
+
+    try {
+      const resp = await jpostAuth("/fyers/exchange", { auth_code: authCode });
+      if (!resp || resp.ok === false) {
+        throw new Error(resp?.error || "Exchange failed");
+      }
+      input.value = ""; // Clear input on success
+      msg.textContent = "Auth code exchanged successfully. Tokens saved.";
+      msg.style.color = "#13c27a";
+      await loadFyersStatus({ quiet: true });
+    } catch (err) {
+      msg.textContent = err?.message || "Unable to exchange auth_code";
+      msg.style.color = "#ff5f5f";
+    }
+  }
+
   $("#fyersStatusReloadBtn")?.addEventListener("click", () => loadFyersStatus());
   $("#fyersForceRefreshBtn")?.addEventListener("click", forceRefreshFyers);
   $("#fyersLoginBtn")?.addEventListener("click", openFyersLoginFlow);
+  $("#fyersExchangeBtn")?.addEventListener("click", exchangeFyersAuthCode);
 
   // -------------------------------
   // Angel summary
