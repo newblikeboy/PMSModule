@@ -1,5 +1,8 @@
+"use strict";
+
 const express = require("express");
 const router = express.Router();
+
 const adminRequired = require("../middlewares/adminRequired");
 const adminCtrl = require("../controllers/admin.controller");
 const angelPublisher = require("../services/angel.publisher.service");
@@ -8,14 +11,17 @@ const User = require("../models/User");
 const {
   getEngineStatus,
   startScanEngine,
-  stopScanEngine
+  stopScanEngine,
 } = require("../controllers/engine.controller");
 
-
-// overview
+// ─────────────────────────────────────────────
+// ✅ Admin Overview
+// ─────────────────────────────────────────────
 router.get("/overview", adminRequired, adminCtrl.getOverview);
 
-// signals (reuse m2 service directly through controller? we'll handle via controller below)
+// ─────────────────────────────────────────────
+// ✅ Latest Signals
+// ─────────────────────────────────────────────
 router.get("/signals", adminRequired, async (req, res, next) => {
   try {
     const m2Service = require("../services/m2.service");
@@ -26,10 +32,10 @@ router.get("/signals", adminRequired, async (req, res, next) => {
   }
 });
 
-
-
-// trades list (paper)
-router.get("/trades", adminRequired, async (req,res,next)=>{
+// ─────────────────────────────────────────────
+// ✅ Paper Trades List
+// ─────────────────────────────────────────────
+router.get("/trades", adminRequired, async (req, res, next) => {
   try {
     const tradeEngine = require("../services/tradeEngine.service");
     const result = await tradeEngine.getAllTrades();
@@ -39,14 +45,20 @@ router.get("/trades", adminRequired, async (req,res,next)=>{
   }
 });
 
-// users
+// ─────────────────────────────────────────────
+// ✅ Users Management
+// ─────────────────────────────────────────────
 router.get("/users", adminRequired, adminCtrl.getUsers);
 router.post("/user/plan", adminRequired, adminCtrl.setUserPlan);
 router.post("/user/automation", adminRequired, adminCtrl.setUserAutomation);
 router.post("/user/angel", adminRequired, adminCtrl.setUserAngelConfig);
+
+// ─────────────────────────────────────────────
+// ✅ Build Angel Login Link for a user (Admin Only)
+// ─────────────────────────────────────────────
 router.get("/angel/login-link", adminRequired, async (req, res) => {
   try {
-    let { userId, email } = req.query || {};
+    let { userId, email } = req.query;
     userId = userId?.trim();
     email = email?.trim()?.toLowerCase();
 
@@ -63,28 +75,25 @@ router.get("/angel/login-link", adminRequired, async (req, res) => {
     }
 
     const url = await angelPublisher.buildLoginUrlForUserId(userId);
-    res.json({ ok: true, url });
+    return res.json({ ok: true, url });
   } catch (err) {
-    const msg = err?.message || "Unable to build login link";
-    const status = msg.includes("not found") ? 404 : msg.includes("required") ? 400 : 500;
-    res.status(status).json({ ok: false, error: msg });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// system control
+
+// ─────────────────────────────────────────────
+// ✅ System Settings
+// ─────────────────────────────────────────────
 router.get("/system", adminRequired, adminCtrl.getSystemSettings);
 router.post("/system", adminRequired, adminCtrl.updateSystemSetting);
 
-// Engine Control (M1 live scanner)
+// ─────────────────────────────────────────────
+// ✅ Engine Control (Live Scanner)
+// ─────────────────────────────────────────────
 router.get("/engine/status", adminRequired, getEngineStatus);
+router.post("/engine/start", adminRequired, startScanEngine);
+router.post("/engine/stop", adminRequired, stopScanEngine);
 
-router.post("/engine/start", adminRequired, async (req, res) => {
-  return startScanEngine(req, res);
-});
-
-router.post("/engine/stop", adminRequired, async (req, res) => {
-  return stopScanEngine(req, res);
-});
-
-
+// ─────────────────────────────────────────────
 module.exports = router;

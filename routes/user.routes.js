@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const authRequired = require("../middlewares/authRequired");
+const PaperTrade = require("../models/PaperTrade");
 
 const m2Service = require("../services/m2.service");
 const tradeEngine = require("../services/tradeEngine.service");
@@ -66,8 +67,9 @@ router.get("/signals", authRequired, async (req, res, next) => {
 // Your trades (paper)
 router.get("/trades", authRequired, async (req, res, next) => {
   try {
-    const result = await tradeEngine.getAllTrades();
-    res.json(result);
+    const userId = String(req.user?._id || "");
+    const trades = await PaperTrade.find({ userId }).sort({ entryTime: -1 }).lean();
+    res.json({ ok: true, trades });
   } catch (err) {
     next(err);
   }
@@ -108,6 +110,7 @@ router.get("/angel/login-link", authRequired, async (req, res) => {
     res.status(status).json({ ok: false, error: msg });
   }
 });
+
 
 
 module.exports = router;

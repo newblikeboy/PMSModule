@@ -194,6 +194,24 @@
     if (angelLinkAcknowledged) return;
     angelLinkAcknowledged = true;
     stopAngelLinkWatcher();
+
+    // Instant UI refresh + switch to profile/broker view
+    try {
+      // Show broker section: prefer 'profileView' then scroll to '#brokerSection' if present
+      try {
+        showView("profileView");
+      } catch (e) {
+        // ignore if view id missing
+      }
+      const brokerSection = $("#brokerSection") || $("#angelSection") || document.getElementById("broker");
+      if (brokerSection) {
+        // small delay to let UI switch
+        setTimeout(() => {
+          brokerSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 250);
+      }
+    } catch (_) {}
+
     notifyAngelLinked(message || "Angel account linked successfully.");
   }
 
@@ -247,9 +265,46 @@
         return;
       }
 
-      updateAngelUI(resp.angel || {});
-      await loadProfile();
-      acknowledgeAngelLink("Angel account linked successfully.");
+      // ===== INSTANT UI UPDATE =====
+      // Update UI immediately based on server response
+      const angelData = resp.angel || {};
+      updateAngelUI(angelData);
+
+      // Update broker text/badges right away
+      $("#userBroker") && ($("#userBroker").textContent = "Broker: ANGEL");
+      $("#brokerStatus") && ($("#brokerStatus").textContent = "ANGEL");
+      $("#sidebarBrokerPill") && ($("#sidebarBrokerPill").textContent = "Broker: ANGEL");
+
+      // Keep connect button enabled (per your choice)
+      if (startAngelLoginBtn) {
+        startAngelLoginBtn.disabled = false;
+        startAngelLoginBtn.textContent = startAngelLoginBtn.getAttribute("data-original") || startAngelLoginBtn.textContent;
+      }
+
+      // Stop poller & acknowledge immediately
+      stopAngelLinkWatcher();
+      angelLinkAcknowledged = true;
+
+      // Refresh profile & plan silently in background
+      try {
+        await loadProfile();
+        await loadPlanStatus();
+      } catch (e) {
+        console.warn("Background refresh failed:", e);
+      }
+
+      // Show alert to user and switch to broker area
+      alert("Angel account linked successfully.");
+      try {
+        showView("profileView");
+      } catch (e) {}
+      const brokerSection = $("#brokerSection") || $("#angelSection") || document.getElementById("broker");
+      if (brokerSection) {
+        setTimeout(() => {
+          brokerSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 250);
+      }
+
     } catch (err) {
       console.error("Angel completion error:", err);
       alert("Unexpected error completing Angel link. Please retry.");
