@@ -419,6 +419,117 @@
   });
 
   // -------------------------------
+  // Fyers token monitor
+  // -------------------------------
+  async function loadFyersStatus(opts = {}) {
+    const { quiet } = opts || {};
+    const msg = $("#fyersStatusMsg");
+    if (!quiet && msg) {
+      msg.textContent = "Checking broker token status...";
+      msg.style.color = "var(--admin-text-soft)";
+    }
+
+    try {
+      const data = await jgetAuth("/fyers/status");
+      if (!data || data.ok === false) {
+        throw new Error(data?.error || "Unable to fetch status");
+      }
+
+      const accessEl = $("#fyersAccessState");
+      const refreshEl = $("#fyersRefreshState");
+      const issuedEl = $("#fyersTokenIssued");
+      const expiryEl = $("#fyersTokenExpiry");
+      const autoEl = $("#fyersAutoRefresh");
+      const manualEl = $("#fyersManualRefresh");
+
+      if (accessEl) {
+        accessEl.textContent = data.hasAccess ? "Saved" : "Missing";
+        setValueState(accessEl, data.hasAccess ? "good" : "bad");
+      }
+      if (refreshEl) {
+        refreshEl.textContent = data.hasRefresh ? "Saved" : "Missing";
+        setValueState(refreshEl, data.hasRefresh ? "good" : "bad");
+      }
+      if (issuedEl) {
+        issuedEl.textContent = formatTimestamp(data.tokenCreatedAt);
+      }
+      if (expiryEl) {
+        expiryEl.textContent = formatExpiry(data.tokenCreatedAt, data.expiresInSec);
+      }
+      if (autoEl) {
+        autoEl.textContent = formatTimestamp(data.lastAutoRefreshAt);
+      }
+      if (manualEl) {
+        manualEl.textContent = formatTimestamp(data.lastManualRefreshAt);
+      }
+
+      if (!quiet && msg) {
+        const ts = new Date().toLocaleTimeString();
+        msg.textContent = `Status updated at ${ts}`;
+        msg.style.color = "var(--admin-text-soft)";
+      }
+    } catch (err) {
+      if (msg) {
+        msg.textContent = err?.message || "Unable to load token status";
+        msg.style.color = "#ff5f5f";
+      }
+    }
+  }
+
+  async function forceRefreshFyers() {
+    const msg = $("#fyersStatusMsg");
+    if (msg) {
+      msg.textContent = "Forcing refresh...";
+      msg.style.color = "var(--admin-text-soft)";
+    }
+
+    try {
+      const resp = await jpostAuth("/fyers/force-refresh", {});
+      if (!resp || resp.ok === false) {
+        throw new Error(resp?.error || "Refresh failed");
+      }
+      if (msg) {
+        msg.textContent = "Manual refresh complete. New tokens saved.";
+        msg.style.color = "#13c27a";
+      }
+      await loadFyersStatus({ quiet: true });
+    } catch (err) {
+      if (msg) {
+        msg.textContent = err?.message || "Unable to refresh token";
+        msg.style.color = "#ff5f5f";
+      }
+    }
+  }
+
+  async function openFyersLoginFlow() {
+    const msg = $("#fyersStatusMsg");
+    if (msg) {
+      msg.textContent = "Requesting broker login URL...";
+      msg.style.color = "var(--admin-text-soft)";
+    }
+    try {
+      const resp = await jgetAuth("/fyers/login-url");
+      if (!resp || resp.ok === false || !resp.url) {
+        throw new Error(resp?.error || "Unable to start login flow");
+      }
+      window.open(resp.url, "_blank", "width=520,height=680");
+      if (msg) {
+        msg.textContent = "Login window opened. Complete OTP + approve, then run Check Status.";
+        msg.style.color = "#13c27a";
+      }
+    } catch (err) {
+      if (msg) {
+        msg.textContent = err?.message || "Unable to open login flow";
+        msg.style.color = "#ff5f5f";
+      }
+    }
+  }
+
+  $("#fyersStatusReloadBtn")?.addEventListener("click", () => loadFyersStatus());
+  $("#fyersForceRefreshBtn")?.addEventListener("click", forceRefreshFyers);
+  $("#fyersLoginBtn")?.addEventListener("click", openFyersLoginFlow);
+
+  // -------------------------------
   // Angel summary
   // -------------------------------
   function renderAngelSummary() {
@@ -515,6 +626,7 @@
     await loadUsers();
     await loadSystem();
     await renderEngineStatus();
+    await loadFyersStatus({ quiet: true });
   }
 
   initialLoad();
@@ -524,6 +636,7 @@
     loadSignals();
     loadTrades();
     renderEngineStatus();
+    loadFyersStatus({ quiet: true });
   }, 30000);
 
   // -------------------------------
