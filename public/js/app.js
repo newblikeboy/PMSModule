@@ -629,6 +629,19 @@
   // ----------------------------------------
   // Profile / Angel state
   // ----------------------------------------
+  async function loadAngelFunds() {
+    const resp = await jgetAuth("/user/angel/funds");
+    const fundsEl = $("#angelTotalFunds");
+    if (!resp || !resp.ok) {
+      if (fundsEl) fundsEl.textContent = "--";
+      return;
+    }
+    const margin = Number(resp.availableMargin || 0);
+    if (fundsEl) {
+      fundsEl.textContent = formatCurrency(margin);
+    }
+  }
+
   function updateAngelUI(angel, user) {
     const connected = !!angel.brokerConnected;
     const connBadge = $("#angelConnBadge");
@@ -679,6 +692,14 @@
       if (currentClientIdDisplay) {
         currentClientIdDisplay.textContent = currentClientId || "Not set";
       }
+    }
+
+    // Load funds if connected
+    if (connected) {
+      loadAngelFunds();
+    } else {
+      const fundsEl = $("#angelTotalFunds");
+      if (fundsEl) fundsEl.textContent = "--";
     }
   }
 

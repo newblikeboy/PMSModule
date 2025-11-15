@@ -102,6 +102,17 @@ router.post("/broker/automation", authRequired, brokerCtrl.setAutomation);
 router.get("/angel/settings", authRequired, brokerCtrl.getAngelSettings);
 router.post("/angel/settings", authRequired, brokerCtrl.updateAngelSettings);
 router.post("/broker/client-id", authRequired, brokerCtrl.updateAngelClientId);
+
+// get angel funds
+router.get("/angel/funds", authRequired, async (req, res, next) => {
+  try {
+    const { getFunds } = require("../services/angel.service");
+    const funds = await getFunds(req.user._id);
+    res.json({ ok: true, availableMargin: funds.availableMargin });
+  } catch (err) {
+    next(err);
+  }
+});
 router.get("/angel/login-link", authRequired, async (req, res) => {
   try {
     // Stateless version: no userId needed anymore
