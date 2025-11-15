@@ -1,0 +1,30 @@
+var axios = require('axios');
+
+var data = JSON.stringify({
+  "refreshToken": "eyJhbGciOiJIUzUxMiJ9.eyJ0b2tlbiI6IlJFRlJFU0gtVE9LRU4iLCJSRUZSRVNILVRPS0VOIjoiZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SjFjMlZ5WDNSNWNHVWlPaUpqYkdsbGJuUWlMQ0owYjJ0bGJsOTBlWEJsSWpvaWRISmhaR1ZmY21WbWNtVnphRjkwYjJ0bGJpSXNJbWR0WDJsa0lqb3dMQ0p6YjNWeVkyVWlPaUl6SWl3aVpHVjJhV05sWDJsa0lqb2lOR1poTXpRM016a3ROR0ZtWVMwelltWmlMVGhrT0RjdE4ySmpOV1ppWkRWaE5HVmhJaXdpYTJsa0lqb2lkSEpoWkdWZmEyVjVYM1l5SWl3aWIyMXVaVzFoYm1GblpYSnBaQ0k2TUN3aWFYTnpJam9pYkc5bmFXNWZjMlZ5ZG1salpTSXNJbk4xWWlJNklrRTRNalExTnpJaUxDSmxlSEFpT2pFM05qTXlPVFEyTkRNc0ltNWlaaUk2TVRjMk16SXdPREEyTXl3aWFXRjBJam94TnpZek1qQTRNRFl6TENKcWRHa2lPaUkxTVRKaE9URXdOaTAxWW1JMExUUm1PRGt0WWpRM1l5MDRaV1F3TlRjeVpEWmlNR01pTENKVWIydGxiaUk2SWlKOS5UUjlyc2pBWFFFeE9NOFJUVVBzejFKWFhWZXNZWlNMbHdzM3h6YnllYzFFLXJ0WDM1VmZvV1ltOFUwZF82SUVJLThOcDVRN05mOHpocUZDVU10NTIzc1B4QXRKSENLUkZ1Z2w1c1dSVjNIb2QteWw5bXpXb0NxOUE3ckJYcUkyYTk4Skp2azZidTgxVGhaT2s5Q1laWUFqR2swQThFM1hZVHRuY013aFlNNDAiLCJpYXQiOjE3NjMyMDgyNDN9.bhe1HNxp-Ip3Q2eaZEzLd9dH_59Ihp-MrLpD5O_0_CJJxE-faOcoEUakrGWTvTjeNLoCBTYXgrak-m2JIx1REg"
+});
+
+var config = {
+  method: 'post',
+  url: 'https://apiconnect.angelone.in/rest/auth/angelbroking/jwt/v1/generateTokens',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6IkE4MjQ1NzIiLCJyb2xlcyI6MCwidXNlcnR5cGUiOiJVU0VSIiwidG9rZW4iOiJleUpoYkdjaU9pSlNVekkxTmlJc0luUjVjQ0k2SWtwWFZDSjkuZXlKMWMyVnlYM1I1Y0dVaU9pSmpiR2xsYm5RaUxDSjBiMnRsYmw5MGVYQmxJam9pZEhKaFpHVmZZV05qWlhOelgzUnZhMlZ1SWl3aVoyMWZhV1FpT2pFeExDSnpiM1Z5WTJVaU9pSXpJaXdpWkdWMmFXTmxYMmxrSWpvaU5HWmhNelEzTXprdE5HRm1ZUzB6WW1aaUxUaGtPRGN0TjJKak5XWmlaRFZoTkdWaElpd2lhMmxrSWpvaWRISmhaR1ZmYTJWNVgzWXlJaXdpYjIxdVpXMWhibUZuWlhKcFpDSTZNVEVzSW5CeWIyUjFZM1J6SWpwN0ltUmxiV0YwSWpwN0luTjBZWFIxY3lJNkltRmpkR2wyWlNKOUxDSnRaaUk2ZXlKemRHRjBkWE1pT2lKaFkzUnBkbVVpZlgwc0ltbHpjeUk2SW5SeVlXUmxYMnh2WjJsdVgzTmxjblpwWTJVaUxDSnpkV0lpT2lKQk9ESTBOVGN5SWl3aVpYaHdJam94TnpZek1qazBOalF6TENKdVltWWlPakUzTmpNeU1EZ3dOak1zSW1saGRDSTZNVGMyTXpJd09EQTJNeXdpYW5ScElqb2lNamRsTkdGaVlUY3ROVEZoWVMwME5tTXlMVGsyWkRNdE9UVXdObVU1WldSaU1HSXdJaXdpVkc5clpXNGlPaUlpZlEuRzNFLUp6SkUtZVpMZkUtUE0xMkJDRXFCQU1LUThwS24wUzZwRnlaUTdTbDZtdFYzc0FMT0FSV2JrUWlycDRSZ3NiUERmbFYxVW5pcW01cU15cFpkNHBFVHljZXZSTDZlalBCUEQ5R0NxU0Y2enJVVllJdXdwclZRRGVtWXRabWQxRlNyc1ZwM00wcnF2cDVNZm1QQzc5R3RPWGJTWDNLRVp6LU1iVkVPQWs4IiwiQVBJLUtFWSI6IjVxclFQajN0IiwiWC1PTEQtQVBJLUtFWSI6dHJ1ZSwiaWF0IjoxNzYzMjA4MjQzLCJleHAiOjE3NjMyMzE0MDB9.gd4gHcuotEGBSZs8qCbD92P2iE2pK2zwGcFZDNMQ0Qs3f_LIBn-e_N_F5l_TL9SDwdWW8-EjzHh_vyhqnRKaYg',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'X-UserType': 'USER',
+    'X-SourceID': 'WEB',
+    'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
+    'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
+    'X-MACAddress': 'MAC_ADDRESS',
+    'X-PrivateKey': '5qrQPj3t'
+  },
+  data: data   // ← missing comma fixed
+};
+
+axios(config)
+  .then(function (response) {
+    console.log(JSON.stringify(response.data, null, 2));
+  })
+  .catch(function (error) {
+    console.error(error.response ? error.response.data : error.message);
+  });
