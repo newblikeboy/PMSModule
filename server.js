@@ -15,10 +15,19 @@ const authRoutes = require("./routes/auth.routes");
 const userRoutes = require("./routes/user.routes");
 const adminRoutes = require("./routes/admin.routes");
 const fyersRoutes = require("./routes/fyers.routes");
+const session = require("express-session");
 
 const app = express();
 app.use(express.json());
 app.use(morgan("dev"));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "dfhksjafh93478fhcwgobnlzs836ybx",
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false }, // set true in HTTPS
+  })
+);
 
 // DB connect
 connectDB();
