@@ -7,7 +7,8 @@ const url = require("url");
 const qs = require("querystring");
 
 /**
- * Build Angel Publisher login URL (Publisher flow)
+ * Build the Angel Publisher login URL.
+ * (Angel ignores custom params in redirect_url — user is tracked via session.)
  */
 function buildLoginUrlForUserId(userId) {
   if (!userId) throw new Error("userId is required");
@@ -19,11 +20,8 @@ function buildLoginUrlForUserId(userId) {
   const API_KEY =
     process.env.ANGEL_API_KEY || process.env.ANGEL_PUBLISHER_KEY;
 
-  if (!API_KEY) {
-    throw new Error("Missing publisher API key (set ANGEL_API_KEY)");
-  }
+  if (!API_KEY) throw new Error("Missing publisher API key (set ANGEL_API_KEY)");
 
-  // Angel ignores custom params in redirect_url; user tracking is done via session
   const redirectBase =
     process.env.ANGEL_REDIRECT_URL ||
     `${process.env.APP_HOST}/auth/angel/callback`;
@@ -32,7 +30,7 @@ function buildLoginUrlForUserId(userId) {
   finalUrl.searchParams.set("api_key", API_KEY);
   finalUrl.searchParams.set("redirect_url", redirectBase);
 
-  console.log("🔗 [Angel] Building Publisher login URL");
+  console.log("🔗 [Angel] Building Publisher Login URL");
   console.log("   API Key     :", API_KEY);
   console.log("   Redirect URL:", redirectBase);
   console.log("   Final URL   :", finalUrl.toString());
@@ -51,16 +49,17 @@ async function startLogin(req, res) {
       return res.status(401).send("Not logged in");
     }
 
-    // Save to session for callback correlation
+    // Save to session so callback can identify the user
     if (req.session) {
       req.session.pendingBrokerConnect = {
         provider: "ANGEL",
         userId: userId.toString(),
         createdAt: Date.now(),
       };
-      console.log("💾 [Angel Login] Stored userId in session:", userId);
+      await req.session.save();
+      console.log("💾 [Angel Login] Saved session.pendingBrokerConnect:", req.session.pendingBrokerConnect);
     } else {
-      console.warn("⚠️ [Angel Login] No session available — fallback will use req.user");
+      console.warn("⚠️ [Angel Login] Session not available — fallback to req.user");
     }
 
     const loginUrl = buildLoginUrlForUserId(userId);
@@ -74,13 +73,12 @@ async function startLogin(req, res) {
 }
 
 /**
- * Parse messy query string from Angel callback
+ * Parse possibly messy Angel callback URLs (duplicate params, etc.)
  */
 function parseMessyQuery(originalUrl) {
   const parsed = url.parse(originalUrl);
   const rawQuery = parsed.query || "";
   const params = qs.parse(rawQuery);
-
   const pick = (val) => (Array.isArray(val) ? val.find(Boolean) || val[0] : val);
 
   const cleaned = {
@@ -100,10 +98,10 @@ function parseMessyQuery(originalUrl) {
 
 /**
  * Step 2 + 3 → Handle Angel callback
- * - Parses tokens
- * - Exchanges refresh → JWT
- * - Maps callback → correct user via session
- * - Saves tokens to DB
+ * - Parse tokens
+ * - Exchange refresh → JWT
+ * - Identify user from session
+ * - Save to DB
  */
 async function handleCallback(req, res) {
   console.log("⚡ [Angel Callback] Received callback from Angel...");
@@ -116,18 +114,18 @@ async function handleCallback(req, res) {
       return res.redirect("/app.html?angel=failed&reason=missing_tokens");
     }
 
-    // Identify the user
+    // Identify user (session-based)
     const userId =
       req.session?.pendingBrokerConnect?.userId || req.user?._id;
     if (!userId) {
-      console.log("❌ [Angel Callback] Could not identify user (no uid/session/user)");
+      console.log("❌ [Angel Callback] Could not identify user (no session/user)");
       console.log("🔍 [Angel Callback] Session contents:", req.session);
       return res.redirect("/app.html?angel=failed&reason=no_userid");
     }
 
     console.log("👤 [Angel Callback] Identified user:", userId);
 
-    // Try exchanging refresh token
+    // Exchange refresh token → JWT token
     let jwtToken = auth_token;
     let newRefreshToken = refresh_token || "";
     let newFeedToken = feed_token || "";
@@ -155,7 +153,6 @@ async function handleCallback(req, res) {
         );
 
         console.log("✅ [Angel Callback] Token exchange response:", resp.data);
-
         const data = resp.data?.data;
         if (data) {
           jwtToken = data.jwtToken || auth_token;
@@ -170,15 +167,15 @@ async function handleCallback(req, res) {
       console.log("ℹ️ [Angel Callback] No refresh_token found, skipping exchange.");
     }
 
-    // Update MongoDB
+    // Save to DB
     console.log("💾 [Angel Callback] Updating user in DB:", userId);
     await User.findByIdAndUpdate(userId, {
       "broker.brokerName": "ANGEL",
       "broker.connected": true,
       "broker.creds.authToken": auth_token,
-      "broker.creds.accessToken": jwtToken || auth_token,
-      "broker.creds.feedToken": newFeedToken || feed_token,
-      "broker.creds.refreshToken": newRefreshToken || "",
+      "broker.creds.accessToken": jwtToken,
+      "broker.creds.feedToken": newFeedToken,
+      "broker.creds.refreshToken": newRefreshToken,
       "broker.creds.exchangedAt": new Date(),
       "broker.creds.note": "Linked via Angel Publisher",
     });

@@ -8,18 +8,18 @@ const authRequired = require("../middlewares/authRequired");
 const angelPublisher = require("../services/angel.publisher.service");
 
 /**
- * GET /auth/angel/login
- * Must be logged-in; saves userId in session; redirects to Angel
+ * Step 1 → /auth/angel/login
+ * Must be logged-in; saves userId in session; redirects to Angel login
  */
 router.get("/auth/angel/login", authRequired, async (req, res) => {
   try {
-    // store session for callback correlation
     if (req.session && req.user?._id) {
       req.session.pendingBrokerConnect = {
         provider: "ANGEL",
         userId: req.user._id.toString(),
         createdAt: Date.now(),
       };
+      await req.session.save(); // ensure session written before redirect
       console.log("💾 [Angel Login Route] Saved user in session:", req.user._id);
     }
     return angelPublisher.startLogin(req, res);
@@ -30,10 +30,10 @@ router.get("/auth/angel/login", authRequired, async (req, res) => {
 });
 
 /**
- * GET /auth/angel/callback
- * Handles Angel redirect → exchanges token → updates DB
+ * Step 2 + 3 → /auth/angel/callback
+ * Handles redirect from Angel → exchanges token → updates DB
  */
-router.get("/auth/angel/callback", (req, res) => {
+router.get("/auth/angel/callback", async (req, res) => {
   console.log("⚡ [Router] Received /auth/angel/callback request");
   return angelPublisher.handleCallback(req, res);
 });
