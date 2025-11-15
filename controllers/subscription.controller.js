@@ -6,9 +6,9 @@ const crypto = require("crypto");
 const User = require("../models/User");
 
 const PLAN_PRICING = {
-  monthly: { amount: 1000, label: "Monthly" },
-  quarterly: { amount: 2100, label: "Quarterly" },
-  yearly: { amount: 6000, label: "Yearly" }
+  Monthly: { amount: 1000, label: "Monthly" },
+  Quarterly: { amount: 2100, label: "Quarterly" },
+  Yearly: { amount: 6000, label: "Yearly" }
 };
 
 /**
@@ -20,15 +20,15 @@ exports.getStatus = async (req, res, next) => {
     const u = req.user;
     res.json({
       ok: true,
+      role: u.role,
       plan: u.plan,
-      planTier: u.planTier || u.plan,
-      canAutoTrade: u.plan === "paid" && u.autoTradingEnabled === true,
+      canAutoTrade: (u.plan !== "Free") && u.autoTradingEnabled === true,
       message:
-        u.plan === "paid"
-          ? "You are on Paid Plan."
-          : (u.plan === "admin"
+        u.plan !== "Free"
+          ? `You are on ${u.plan} Plan.`
+          : (u.role === "Admin"
               ? "Admin access."
-              : "You are on Trial. Upgrade to unlock automation.")
+              : "You are on Free Plan. Upgrade to unlock automation.")
     });
   } catch (err) {
     next(err);
@@ -45,16 +45,17 @@ exports.createUpgradeIntent = async (req, res, next) => {
     const u = req.user;
 
     // If already paid, no need to create
-    if (u.plan === "paid" || u.plan === "admin") {
+    if (u.plan !== "Free" || u.role === "Admin") {
       return res.json({
         ok: true,
         alreadyPaid: true,
+        role: u.role,
         plan: u.plan,
         message: "You already have paid access."
       });
     }
 
-    const planType = String(req.body?.planType || "monthly").toLowerCase();
+    const planType = String(req.body?.planType || "Monthly");
     const planInfo = PLAN_PRICING[planType];
     if (!planInfo) {
       return res.status(400).json({ ok: false, error: "Invalid plan type" });
@@ -136,19 +137,14 @@ exports.confirmUpgrade = async (req, res, next) => {
       return res.status(400).json({ ok: false, error: "Signature verification failed" });
     }
 
-    req.user.plan = "paid";
-    if (planType && PLAN_PRICING[planType]) {
-      req.user.planTier = planType;
-    } else if (!req.user.planTier) {
-      req.user.planTier = "monthly";
-    }
+    req.user.plan = planType;
     await req.user.save();
 
     res.json({
       ok: true,
+      role: req.user.role,
       plan: req.user.plan,
-      planTier: req.user.planTier,
-      message: "Subscription upgraded to Paid."
+      message: `Subscription upgraded to ${planType}.`
     });
   } catch (err) {
     console.error("[subscription] confirmUpgrade error:", err?.message || err);

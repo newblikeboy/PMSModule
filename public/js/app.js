@@ -4,9 +4,9 @@
   const body = document.body;
 
   const PLAN_CONFIG = {
-    monthly: { label: "Monthly", displayAmount: "\u20B91,000" },
-    quarterly: { label: "Quarterly", displayAmount: "\u20B92,100" },
-    yearly: { label: "Yearly", displayAmount: "\u20B96,000" }
+    Monthly: { label: "Monthly", displayAmount: "\u20B91,000" },
+    Quarterly: { label: "Quarterly", displayAmount: "\u20B92,100" },
+    Yearly: { label: "Yearly", displayAmount: "\u20B96,000" }
   };
 
   let currentUserProfile = null;
@@ -586,12 +586,11 @@
     const planRes = await jgetAuth("/user/plan/status");
     if (!planRes || !planRes.ok) return;
 
-    const plan = (planRes.plan || "trial").toLowerCase();
-    const planTier = (planRes.planTier || plan).toLowerCase();
-    const tierLabel =
-      PLAN_CONFIG[planTier]?.label || planTier.charAt(0).toUpperCase() + planTier.slice(1);
-    const isPaid = plan === "paid" || plan === "admin";
-    const badgeLabel = isPaid ? tierLabel : "Trial";
+    const role = planRes.role || "User";
+    const plan = planRes.plan || "Free";
+    const tierLabel = PLAN_CONFIG[plan]?.label || plan;
+    const isPaid = plan !== "Free";
+    const badgeLabel = isPaid ? tierLabel : "Free";
 
     $("#userPlan") && ($("#userPlan").textContent = `Plan: ${badgeLabel}`);
     $("#sidebarPlanPill") && ($("#sidebarPlanPill").textContent = `Plan: ${badgeLabel}`);
@@ -600,29 +599,29 @@
     const planHintEl = $("#planHint");
 
     if (planNameEl) {
-      if (plan === "admin") {
+      if (role === "Admin") {
         planNameEl.textContent = `Admin - ${tierLabel}`;
       } else if (isPaid) {
-        planNameEl.textContent = `Paid - ${tierLabel}`;
+        planNameEl.textContent = `${plan} Plan`;
       } else {
-        planNameEl.textContent = "Trial (Upgrade Available)";
+        planNameEl.textContent = "Free Plan (Upgrade Available)";
       }
     }
 
     if (planHintEl) {
-      planHintEl.textContent = isPaid
+      planHintEl.textContent = isPaid || role === "Admin"
         ? "You have full access. Angel live execution can be enabled."
         : "Upgrade to unlock automation and live Angel execution.";
     }
 
     if (subscribeBtn) {
-      subscribeBtn.textContent = isPaid ? "Plan Active" : "Subscribe Now";
-      subscribeBtn.disabled = isPaid;
+      subscribeBtn.textContent = isPaid || role === "Admin" ? "Plan Active" : "Subscribe Now";
+      subscribeBtn.disabled = isPaid || role === "Admin";
     }
 
     if (upgradePlanBtn) {
-      upgradePlanBtn.textContent = isPaid ? "Plan Active" : "Upgrade Plan";
-      upgradePlanBtn.disabled = isPaid;
+      upgradePlanBtn.textContent = isPaid || role === "Admin" ? "Plan Active" : "Upgrade Plan";
+      upgradePlanBtn.disabled = isPaid || role === "Admin";
     }
   }
 

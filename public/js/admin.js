@@ -236,12 +236,11 @@
     }
 
     cachedUsers.forEach((user) => {
-      const normalizedPlan = String(user.plan || "trial").toLowerCase();
-      const planIsPaid = normalizedPlan === "paid" || normalizedPlan === "admin";
+      const plan = String(user.plan || "Free");
+      const role = String(user.role || "User");
+      const planIsPaid = plan !== "Free" || role === "Admin";
       const planClass = planIsPaid ? "plan-paid" : "plan-trial";
-      const planLabel =
-        normalizedPlan === "admin" ? "Admin" :
-        normalizedPlan === "paid" ? "Paid" : "Trial";
+      const planLabel = role === "Admin" ? "Admin" : plan;
 
       const brokerConnected = user.broker?.connected;
       const brokerName = user.broker?.brokerName || "Not connected";
@@ -263,8 +262,8 @@
         <td>${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "--"}</td>
         <td>
           <div class="admin-row-actions">
-            <button class="admin-mini-btn pay" data-action="plan-paid" data-id="${user._id}">Paid</button>
-            <button class="admin-mini-btn" data-action="plan-trial" data-id="${user._id}">Trial</button>
+            <button class="admin-mini-btn pay" data-action="plan-Monthly" data-id="${user._id}">Monthly</button>
+            <button class="admin-mini-btn" data-action="plan-Free" data-id="${user._id}">Free</button>
             <button class="admin-mini-btn" data-action="plan-admin" data-id="${user._id}">Admin</button>
             <button class="admin-mini-btn" data-action="angel-login" data-id="${user._id}">Angel Login</button>
             <button class="admin-mini-btn" data-action="angel-margin" data-id="${user._id}" data-margin="${marginPct}">Set Margin</button>
@@ -289,7 +288,7 @@
     const userId = btn.getAttribute("data-id");
     if (!userId) return;
 
-    if (action === "plan-paid" || action === "plan-trial" || action === "plan-admin") {
+    if (action === "plan-Monthly" || action === "plan-Free" || action === "plan-admin") {
       const plan = action.replace("plan-", "");
       const resp = await jpostAuth("/admin/user/plan", { userId, plan });
       if (!resp.ok) {

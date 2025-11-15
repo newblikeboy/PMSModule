@@ -21,8 +21,9 @@ function signJwt(user) {
   return jwt.sign(
     {
       uid: user._id.toString(),
+      role: user.role,
       plan: user.plan,
-      isAdmin: user.plan === "admin"
+      isAdmin: user.role === "Admin"
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES }

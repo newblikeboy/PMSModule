@@ -44,7 +44,7 @@ async function getFunds(userId) {
     const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/getRMS`;
     console.log("[angel.service] Calling getFunds API for user", userId, "with shared apiKey:", ANGEL_API_KEY);
     const { data } = await axios.get(url, { headers, timeout: 10000 });
-    console.log("[angel.service] getFunds API response:", JSON.stringify(data, null, 2));
+    
     const payload = data?.data || data || {};
     const availableMargin =
       Number(payload.availablecash) ||

@@ -20,7 +20,7 @@ module.exports = async function adminRequired(req, res, next) {
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    if (req.user.plan !== "admin") {
+    if (req.user.role !== "Admin") {
       return res.status(403).json({ ok: false, error: "Admin only" });
     }
 

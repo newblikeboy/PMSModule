@@ -68,7 +68,7 @@ exports.setUserPlan = async (req, res, next) => {
       return res.status(400).json({ ok:false, error:"userId & plan required" });
     }
 
-    if (!["trial","paid","admin"].includes(plan)) {
+    if (!["Free","Monthly","Quarterly","Yearly"].includes(plan)) {
       return res.status(400).json({ ok:false, error:"invalid plan" });
     }
 

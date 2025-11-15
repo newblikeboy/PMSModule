@@ -25,8 +25,8 @@ router.get("/profile", authRequired, async (req, res) => {
       name: u.name,
       email: u.email,
       phone: u.phone,
+      role: u.role,
       plan: u.plan,
-      planTier: u.planTier,
       broker: {
         connected: u.broker.connected,
         brokerName: u.broker.brokerName,
@@ -110,7 +110,8 @@ router.get("/angel/funds", authRequired, async (req, res, next) => {
     const funds = await getFunds(req.user._id);
     res.json({ ok: true, availableMargin: funds.availableMargin });
   } catch (err) {
-    next(err);
+    console.error("[angel funds route] error:", err.message);
+    res.json({ ok: false, availableMargin: 0 });
   }
 });
 router.get("/angel/login-link", authRequired, async (req, res) => {

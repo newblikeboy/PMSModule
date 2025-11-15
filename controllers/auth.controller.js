@@ -24,7 +24,8 @@ exports.signup = async (req, res, next) => {
       email,
       phone,
       passwordHash,
-      plan: "trial",
+      role: "User",
+      plan: "Free",
       broker: { connected: false, brokerName: "", note: "Not connected" },
       autoTradingEnabled: false
     });

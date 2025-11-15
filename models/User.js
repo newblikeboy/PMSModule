@@ -47,8 +47,8 @@ const userSchema = new mongoose.Schema(
     password: { type: String, select: false },
 
     // ---- plan / roles ----
-    plan: { type: String, enum: ["trial", "paid", "admin"], default: "trial" },
-    planTier: { type: String, default: "trial" },
+    role: { type: String, enum: ["User", "Admin"], default: "User" },
+    plan: { type: String, enum: ["Free", "Monthly", "Quarterly", "Yearly"], default: "Free" },
 
   
     broker: { type: BrokerSchema, default: () => ({}) },
