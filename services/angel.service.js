@@ -4,10 +4,10 @@ const axios = require("axios");
 const User = require("../models/User");
 const { resolveToken } = require("./instruments.service");
 
-const BASE_URL = process.env.ANGEL_BASE_URL || "https://apiconnect.angelbroking.com";
+const BASE_URL = process.env.ANGEL_BASE_URL || "https://apiconnect.angelone.in";
 const ORDER_URL =
   process.env.ANGEL_ORDER_URL ||
-  "https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/placeOrder";
+  "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/placeOrder";
 const ANGEL_API_KEY = process.env.ANGEL_API_KEY || "5qrQPj3t"; // Shared API key for the app
 
 function buildHeaders(accessToken) {
@@ -41,9 +41,9 @@ async function getFunds(userId) {
   try {
     const { creds } = await getUserCreds(userId);
     const headers = buildHeaders(creds.accessToken);
-    const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/getFunds`;
+    const url = `${BASE_URL}/rest/secure/angelbroking/user/v1/getRMS`;
     console.log("[angel.service] Calling getFunds API for user", userId, "with shared apiKey:", ANGEL_API_KEY);
-    const { data } = await axios.post(url, {}, { headers, timeout: 10000 });
+    const { data } = await axios.get(url, { headers, timeout: 10000 });
     console.log("[angel.service] getFunds API response:", JSON.stringify(data, null, 2));
     const payload = data?.data || data || {};
     const availableMargin =
