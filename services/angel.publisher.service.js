@@ -1,18 +1,15 @@
-// services/angel.publisher.service.js
 "use strict";
 
 const axios = require("axios");
+const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const url = require("url");
 const qs = require("querystring");
 
 /**
- * Build the Angel Publisher login URL.
- * (Angel ignores custom params in redirect_url — user is tracked via session.)
+ * Step 1 → Build Angel Publisher Login URL
  */
-function buildLoginUrlForUserId(userId) {
-  if (!userId) throw new Error("userId is required");
-
+function buildLoginUrl() {
   const PUBLISHER_BASE =
     process.env.ANGEL_PUBLISHER_LOGIN ||
     "https://smartapi.angelbroking.com/publisher-login/";
@@ -20,52 +17,28 @@ function buildLoginUrlForUserId(userId) {
   const API_KEY =
     process.env.ANGEL_API_KEY || process.env.ANGEL_PUBLISHER_KEY;
 
-  if (!API_KEY) throw new Error("Missing publisher API key (set ANGEL_API_KEY)");
+  if (!API_KEY) throw new Error("Missing ANGEL_API_KEY");
 
-  const redirectBase =
+  const redirectUrl =
     process.env.ANGEL_REDIRECT_URL ||
     `${process.env.APP_HOST}/auth/angel/callback`;
 
   const finalUrl = new URL(PUBLISHER_BASE);
   finalUrl.searchParams.set("api_key", API_KEY);
-  finalUrl.searchParams.set("redirect_url", redirectBase);
+  finalUrl.searchParams.set("redirect_url", redirectUrl);
 
-  console.log("🔗 [Angel] Building Publisher Login URL");
-  console.log("   API Key     :", API_KEY);
-  console.log("   Redirect URL:", redirectBase);
-  console.log("   Final URL   :", finalUrl.toString());
-
+  console.log("🔗 [Angel] Publisher login URL built:", finalUrl.toString());
   return finalUrl.toString();
 }
 
 /**
- * Step 1 → Start Angel login redirect
+ * Step 2 → Redirect user to Angel login page
  */
 async function startLogin(req, res) {
   try {
-    const userId = req.user?._id;
-    if (!userId) {
-      console.log("❌ [Angel Login] No user session found");
-      return res.status(401).send("Not logged in");
-    }
-
-    // Save to session so callback can identify the user
-    if (req.session) {
-      req.session.pendingBrokerConnect = {
-        provider: "ANGEL",
-        userId: userId.toString(),
-        createdAt: Date.now(),
-      };
-      await req.session.save();
-      console.log("💾 [Angel Login] Saved session.pendingBrokerConnect:", req.session.pendingBrokerConnect);
-    } else {
-      console.warn("⚠️ [Angel Login] Session not available — fallback to req.user");
-    }
-
-    const loginUrl = buildLoginUrlForUserId(userId);
-    console.log(`✅ [Angel Login] Redirecting user ${userId} → ${loginUrl}`);
-
-    return res.redirect(loginUrl);
+    const url = buildLoginUrl();
+    console.log("✅ [Angel Login] Redirecting to:", url);
+    return res.redirect(url);
   } catch (err) {
     console.error("💥 [Angel Login Error]", err);
     return res.status(500).send("Unable to start Angel login");
@@ -73,13 +46,14 @@ async function startLogin(req, res) {
 }
 
 /**
- * Parse possibly messy Angel callback URLs (duplicate params, etc.)
+ * Parse messy callback URL safely
  */
 function parseMessyQuery(originalUrl) {
   const parsed = url.parse(originalUrl);
-  const rawQuery = parsed.query || "";
-  const params = qs.parse(rawQuery);
-  const pick = (val) => (Array.isArray(val) ? val.find(Boolean) || val[0] : val);
+  const raw = parsed.query || "";
+  const params = qs.parse(raw);
+
+  const pick = (v) => (Array.isArray(v) ? v.find(Boolean) || v[0] : v);
 
   const cleaned = {
     auth_token: pick(params.auth_token),
@@ -97,79 +71,95 @@ function parseMessyQuery(originalUrl) {
 }
 
 /**
- * Step 2 + 3 → Handle Angel callback
- * - Parse tokens
- * - Exchange refresh → JWT
- * - Identify user from session
- * - Save to DB
+ * Step 3 → Handle Angel callback
+ * Flow:
+ *   - Parse auth_token, refresh_token, feed_token
+ *   - Exchange refresh_token → jwtToken
+ *   - Decode jwtToken → extract clientId (username)
+ *   - Find user by broker.creds.clientId
+ *   - Update tokens in DB
  */
 async function handleCallback(req, res) {
   console.log("⚡ [Angel Callback] Received callback from Angel...");
 
   try {
-    const { auth_token, feed_token, refresh_token } = parseMessyQuery(req.originalUrl);
+    const { auth_token, feed_token, refresh_token } = parseMessyQuery(
+      req.originalUrl
+    );
 
-    if (!auth_token || !feed_token) {
-      console.log("❌ [Angel Callback] Missing tokens in redirect URL");
+    if (!auth_token || !refresh_token) {
+      console.log("❌ [Angel Callback] Missing tokens in callback URL");
       return res.redirect("/app.html?angel=failed&reason=missing_tokens");
     }
 
-    // Identify user (session-based)
-    const userId =
-      req.session?.pendingBrokerConnect?.userId || req.user?._id;
-    if (!userId) {
-      console.log("❌ [Angel Callback] Could not identify user (no session/user)");
-      console.log("🔍 [Angel Callback] Session contents:", req.session);
-      return res.redirect("/app.html?angel=failed&reason=no_userid");
-    }
-
-    console.log("👤 [Angel Callback] Identified user:", userId);
-
-    // Exchange refresh token → JWT token
-    let jwtToken = auth_token;
-    let newRefreshToken = refresh_token || "";
+    // --- Exchange refresh → jwtToken ---
+    console.log("🔄 [Angel Callback] Exchanging refresh_token → jwtToken...");
+    let jwtToken = null;
     let newFeedToken = feed_token || "";
+    let newRefreshToken = refresh_token;
 
-    if (refresh_token) {
-      console.log("🔄 [Angel Callback] Exchanging refresh_token → jwtToken...");
-      try {
-        const resp = await axios.post(
-          "https://apiconnect.angelone.in/rest/auth/angelbroking/jwt/v1/generateTokens",
-          { refreshToken: refresh_token },
-          {
-            headers: {
-              Authorization: `Bearer ${auth_token}`,
-              "Content-Type": "application/json",
-              Accept: "application/json",
-              "X-UserType": "USER",
-              "X-SourceID": "WEB",
-              "X-ClientLocalIP": process.env.CLIENT_LOCAL_IP || "127.0.0.1",
-              "X-ClientPublicIP": process.env.CLIENT_PUBLIC_IP || "0.0.0.0",
-              "X-MACAddress": process.env.CLIENT_MAC || "00:00:00:00:00:00",
-              "X-PrivateKey": process.env.ANGEL_API_KEY,
-            },
-            timeout: 15000,
-          }
-        );
-
-        console.log("✅ [Angel Callback] Token exchange response:", resp.data);
-        const data = resp.data?.data;
-        if (data) {
-          jwtToken = data.jwtToken || auth_token;
-          newRefreshToken = data.refreshToken || refresh_token;
-          newFeedToken = data.feedToken || feed_token;
+    try {
+      const resp = await axios.post(
+        "https://apiconnect.angelone.in/rest/auth/angelbroking/jwt/v1/generateTokens",
+        { refreshToken: refresh_token },
+        {
+          headers: {
+            Authorization: `Bearer ${auth_token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": process.env.CLIENT_LOCAL_IP || "127.0.0.1",
+            "X-ClientPublicIP": process.env.CLIENT_PUBLIC_IP || "0.0.0.0",
+            "X-MACAddress": process.env.CLIENT_MAC || "00:00:00:00:00:00",
+            "X-PrivateKey": process.env.ANGEL_API_KEY,
+          },
+          timeout: 15000,
         }
-      } catch (err) {
-        console.error("💥 [Angel Callback] Token exchange failed:", err.message);
-        if (err.response?.data) console.error("↪ Response:", err.response.data);
+      );
+
+      const data = resp.data?.data;
+      if (data) {
+        jwtToken = data.jwtToken;
+        newFeedToken = data.feedToken || feed_token;
+        newRefreshToken = data.refreshToken || refresh_token;
       }
-    } else {
-      console.log("ℹ️ [Angel Callback] No refresh_token found, skipping exchange.");
+
+      console.log("✅ [Angel Callback] Token exchange successful");
+    } catch (err) {
+      console.error("💥 [Angel Callback] Token exchange failed:", err.message);
+      if (err.response?.data) console.error("↪ Response:", err.response.data);
+      return res.redirect("/app.html?angel=failed&reason=exchange_failed");
     }
 
-    // Save to DB
-    console.log("💾 [Angel Callback] Updating user in DB:", userId);
-    await User.findByIdAndUpdate(userId, {
+    // --- Decode JWT ---
+    let clientId = null;
+    try {
+      const decoded = jwt.decode(jwtToken);
+      clientId = decoded?.username;
+      console.log("🧩 [Angel Callback] Decoded JWT:", decoded);
+      console.log("👤 [Angel Callback] Extracted clientId:", clientId);
+    } catch (e) {
+      console.error("💥 [Angel Callback] Failed to decode JWT:", e.message);
+      return res.redirect("/app.html?angel=failed&reason=decode_failed");
+    }
+
+    if (!clientId) {
+      console.log("❌ [Angel Callback] Missing clientId in JWT");
+      return res.redirect("/app.html?angel=failed&reason=no_clientid");
+    }
+
+    // --- Find user by clientId ---
+    const user = await User.findOne({ "broker.creds.clientId": clientId });
+    if (!user) {
+      console.log("❌ [Angel Callback] No user linked with clientId:", clientId);
+      return res.redirect(
+        `/app.html?angel=failed&reason=client_not_linked&clientId=${clientId}`
+      );
+    }
+
+    // --- Update user tokens ---
+    await User.findByIdAndUpdate(user._id, {
       "broker.brokerName": "ANGEL",
       "broker.connected": true,
       "broker.creds.authToken": auth_token,
@@ -177,18 +167,16 @@ async function handleCallback(req, res) {
       "broker.creds.feedToken": newFeedToken,
       "broker.creds.refreshToken": newRefreshToken,
       "broker.creds.exchangedAt": new Date(),
-      "broker.creds.note": "Linked via Angel Publisher",
+      "broker.creds.note": "Linked via Angel Publisher (JWT verified)",
     });
 
-    if (req.session?.pendingBrokerConnect) {
-      delete req.session.pendingBrokerConnect;
-      console.log("🧹 [Angel Callback] Cleared session.pendingBrokerConnect");
-    }
+    console.log(
+      `✅ [Angel Callback] Tokens updated successfully for clientId ${clientId} (userId ${user._id})`
+    );
 
-    console.log("✅ [Angel Callback] User updated successfully → redirecting to app");
     return res.redirect("/app.html?angel=connected");
   } catch (err) {
-    console.error("💥 [Angel Callback Error]", err.response?.data || err);
+    console.error("💥 [Angel Callback Fatal Error]", err);
     return res.redirect("/app.html?angel=failed&reason=server_error");
   }
 }
@@ -196,5 +184,5 @@ async function handleCallback(req, res) {
 module.exports = {
   startLogin,
   handleCallback,
-  buildLoginUrlForUserId,
+  buildLoginUrl,
 };

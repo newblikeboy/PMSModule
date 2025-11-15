@@ -102,11 +102,13 @@ router.get("/angel/settings", authRequired, brokerCtrl.getAngelSettings);
 router.post("/angel/settings", authRequired, brokerCtrl.updateAngelSettings);
 router.get("/angel/login-link", authRequired, async (req, res) => {
   try {
-    const url = await angelPublisher.buildLoginUrlForUserId(req.user._id);
+    // Stateless version: no userId needed anymore
+    const url = angelPublisher.buildLoginUrl();
     res.json({ ok: true, url });
   } catch (err) {
+    console.error("💥 [Angel Login Link Error]", err);
     const msg = err?.message || "Unable to build login link";
-    const status = msg.includes("not found") ? 404 : msg.includes("required") ? 400 : 500;
+    const status = msg.includes("Missing") ? 400 : 500;
     res.status(status).json({ ok: false, error: msg });
   }
 });
