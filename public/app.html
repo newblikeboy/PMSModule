@@ -190,9 +190,17 @@
             <div class="app-settings">
               
               <article class="app-setting-card">
+                <div class="app-setting-label">Angel Client ID</div>
+                <div class="app-setting-value" id="currentAngelClientId">Not set</div>
+                <input type="text" id="angelClientIdInput" placeholder="Enter Angel Client ID" class="app-input" />
+                <button type="button" class="app-btn outline small" id="saveAngelClientIdBtn">Save Client ID</button>
+                <div id="angelClientIdMsg" class="app-setting-hint"></div>
+                
+                
                 <div class="app-setting-label">Angel broker login</div>
                 <div class="app-pill status" id="angelConnBadge">Angel Not Linked</div>
                 <button type="button" class="app-btn outline small" id="startAngelLoginBtn">Start Angel Login</button>
+
                 
               </article>
 

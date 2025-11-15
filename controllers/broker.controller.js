@@ -157,6 +157,30 @@ exports.setAutomation = async (req, res, next) => {
 };
 
 /**
+ * POST /user/broker/client-id
+ * Body: { clientId: string }
+ * Updates the Angel Client ID in the broker creds.
+ */
+exports.updateAngelClientId = async (req, res, next) => {
+  try {
+    const { clientId } = req.body;
+    if (!clientId || typeof clientId !== 'string' || clientId.trim().length === 0) {
+      return res.status(400).json({ ok: false, error: "Valid Client ID required" });
+    }
+
+    req.user.broker.creds.clientId = clientId.trim();
+    await req.user.save();
+
+    res.json({
+      ok: true,
+      clientId: req.user.broker.creds.clientId
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * GET /user/broker/status
  * Returns broker + automation info for dashboard.
  */

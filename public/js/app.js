@@ -109,6 +109,9 @@
   const angelMarginForm = $("#angelMarginForm");
   const angelMarginSaveBtn = $("#angelMarginSaveBtn");
   const angelLiveToggleBtn = $("#angelLiveToggleBtn");
+  const angelClientIdInput = $("#angelClientIdInput");
+  const saveAngelClientIdBtn = $("#saveAngelClientIdBtn");
+  const angelClientIdMsg = $("#angelClientIdMsg");
 
   const openPricingModal = (trigger) => {
     if (trigger?.disabled) return;
@@ -409,6 +412,39 @@
     await loadPlanStatus();
   });
 
+  saveAngelClientIdBtn?.addEventListener("click", async () => {
+    if (saveAngelClientIdBtn.disabled) return;
+    const clientId = angelClientIdInput?.value?.trim();
+    if (!clientId) {
+      if (angelClientIdMsg) {
+        angelClientIdMsg.textContent = "Please enter a valid Client ID.";
+        angelClientIdMsg.style.color = "var(--app-danger)";
+      }
+      return;
+    }
+
+    saveAngelClientIdBtn.disabled = true;
+    saveAngelClientIdBtn.textContent = "Saving...";
+
+    const resp = await jpostAuth("/user/broker/client-id", { clientId });
+    if (!resp.ok) {
+      if (angelClientIdMsg) {
+        angelClientIdMsg.textContent = resp.error || "Failed to save Client ID.";
+        angelClientIdMsg.style.color = "var(--app-danger)";
+      }
+    } else {
+      if (angelClientIdMsg) {
+        angelClientIdMsg.textContent = "Client ID saved successfully.";
+        angelClientIdMsg.style.color = "var(--app-success)";
+      }
+      // Reload profile to ensure UI is in sync with database
+      await loadProfile();
+    }
+
+    saveAngelClientIdBtn.disabled = false;
+    saveAngelClientIdBtn.textContent = "Save Client ID";
+  });
+
   // ----------------------------------------
   // Helper utilities
   // ----------------------------------------
@@ -593,7 +629,7 @@
   // ----------------------------------------
   // Profile / Angel state
   // ----------------------------------------
-  function updateAngelUI(angel) {
+  function updateAngelUI(angel, user) {
     const connected = !!angel.brokerConnected;
     const connBadge = $("#angelConnBadge");
     if (connBadge) {
@@ -632,6 +668,18 @@
       marginMsg.textContent = "Live Angel orders will use at most this percentage of your available margin.";
       marginMsg.style.color = "var(--app-text-soft)";
     }
+
+    // Update Angel Client ID input and display
+    const clientIdInput = $("#angelClientIdInput");
+    const currentClientIdDisplay = $("#currentAngelClientId");
+    if (clientIdInput) {
+      // Display the current clientId from profile
+      const currentClientId = user?.broker?.clientId || "";
+      clientIdInput.value = currentClientId;
+      if (currentClientIdDisplay) {
+        currentClientIdDisplay.textContent = currentClientId || "Not set";
+      }
+    }
   }
 
   async function loadProfile() {
@@ -659,7 +707,7 @@
     profileName && (profileName.textContent = firstName);
     profileInitial && (profileInitial.textContent = initial);
 
-    updateAngelUI(user.angel || {});
+    updateAngelUI(user.angel || {}, user);
     return user;
   }
 

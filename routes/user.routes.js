@@ -29,7 +29,8 @@ router.get("/profile", authRequired, async (req, res) => {
       planTier: u.planTier,
       broker: {
         connected: u.broker.connected,
-        brokerName: u.broker.brokerName
+        brokerName: u.broker.brokerName,
+        clientId: u.broker.creds.clientId || ""
       },
       autoTradingEnabled: u.autoTradingEnabled,
       angel: {
@@ -100,6 +101,7 @@ router.post("/broker/automation", authRequired, brokerCtrl.setAutomation);
 // angel specific settings
 router.get("/angel/settings", authRequired, brokerCtrl.getAngelSettings);
 router.post("/angel/settings", authRequired, brokerCtrl.updateAngelSettings);
+router.post("/broker/client-id", authRequired, brokerCtrl.updateAngelClientId);
 router.get("/angel/login-link", authRequired, async (req, res) => {
   try {
     // Stateless version: no userId needed anymore
