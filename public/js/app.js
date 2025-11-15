@@ -108,7 +108,7 @@
   const startAngelLoginBtn = $("#startAngelLoginBtn");
   const angelMarginForm = $("#angelMarginForm");
   const angelMarginSaveBtn = $("#angelMarginSaveBtn");
-  const angelLiveToggleBtn = $("#angelLiveToggleBtn");
+  const tradingEngineToggleBtn = $("#tradingEngineToggleBtn");
   const angelClientIdInput = $("#angelClientIdInput");
   const saveAngelClientIdBtn = $("#saveAngelClientIdBtn");
   const angelClientIdMsg = $("#angelClientIdMsg");
@@ -400,15 +400,47 @@
     }
   });
 
-  angelLiveToggleBtn?.addEventListener("click", async () => {
-    if (angelLiveToggleBtn.disabled) return;
-    const currentState = $("#angelLiveStatus")?.dataset.state === "on";
-    const resp = await jpostAuth("/user/angel/settings", { liveEnabled: !currentState });
-    if (!resp.ok) {
-      alert(resp.error || "Failed to update live status");
+  tradingEngineToggleBtn?.addEventListener("click", async () => {
+    // Check conditions and show alerts if disabled
+    const hasAccess = (currentUserProfile?.plan && currentUserProfile.plan !== "Free") || currentUserProfile?.role === "Admin";
+    const connected = currentUserProfile?.broker?.connected && currentUserProfile?.broker?.brokerName === "ANGEL";
+
+    if (!hasAccess && connected) {
+      alert("Please Buy The Subscription to Enable the Trading Engine..");
       return;
     }
-    updateAngelUI(resp.angel || {});
+
+    if (hasAccess && !connected) {
+      alert("Please connect your Angel One Broker first");
+      return;
+    }
+
+    if (!hasAccess && !connected) {
+      alert("Please Buy The Subscription and connect your Angel One Broker to Enable the Trading Engine..");
+      return;
+    }
+
+    // If button is disabled for other reasons, return
+    if (tradingEngineToggleBtn.disabled) return;
+
+    const currentState = $("#tradingEngineStatus")?.dataset.state === "on";
+    const newState = !currentState;
+
+    // Toggle both liveEnabled and autoTradingEnabled
+    const liveResp = await jpostAuth("/user/angel/settings", { liveEnabled: newState });
+    if (!liveResp.ok) {
+      alert(liveResp.error || "Failed to update live trading");
+      return;
+    }
+
+    const autoResp = await jpostAuth("/user/broker/automation", { enable: newState });
+    if (!autoResp.ok) {
+      alert(autoResp.error || "Failed to update automation");
+      return;
+    }
+
+    updateAngelUI(liveResp.angel || {});
+    await loadProfile(); // To update autoTradingEnabled
     await loadPlanStatus();
   });
 
@@ -661,18 +693,23 @@
     if (marginInput && Number.isFinite(marginPct)) marginInput.value = String(marginPct);
 
     const liveEnabled = !!angel.liveEnabled;
-    const liveStatus = $("#angelLiveStatus");
-    if (liveStatus) {
-      liveStatus.textContent = liveEnabled ? "Live ON" : "Live OFF";
-      liveStatus.dataset.state = liveEnabled ? "on" : "off";
-      liveStatus.classList.toggle("good", liveEnabled);
-      liveStatus.classList.toggle("danger", !liveEnabled);
+    const autoEnabled = !!user?.autoTradingEnabled;
+    const hasAccess = (user?.plan && user.plan !== "Free") || user?.role === "Admin";
+    const engineEnabled = hasAccess && liveEnabled && autoEnabled; // Both flags AND access required for engine ON
+
+    const engineStatus = $("#tradingEngineStatus");
+    if (engineStatus) {
+      engineStatus.textContent = engineEnabled ? "Engine ON" : "Engine OFF";
+      engineStatus.dataset.state = engineEnabled ? "on" : "off";
+      engineStatus.classList.toggle("good", engineEnabled);
+      engineStatus.classList.toggle("danger", !engineEnabled);
     }
 
-    const liveBtn = $("#angelLiveToggleBtn");
-    if (liveBtn) {
-      liveBtn.textContent = liveEnabled ? "Disable Live" : "Enable Live";
-      liveBtn.disabled = !connected;
+    const engineBtn = $("#tradingEngineToggleBtn");
+    if (engineBtn) {
+      engineBtn.textContent = engineEnabled ? "Disable Trading Engine" : "Enable Trading Engine";
+      // Enable if connected OR has access (so users can click and get alerts)
+      engineBtn.disabled = !(connected || hasAccess);
     }
 
     const marginMsg = $("#angelMarginMsg");
@@ -715,11 +752,6 @@
     $("#userBroker") && ($("#userBroker").textContent = "Broker: " + brokerName);
     $("#brokerStatus") && ($("#brokerStatus").textContent = brokerConnected ? brokerName : "Not Connected");
     $("#sidebarBrokerPill") && ($("#sidebarBrokerPill").textContent = "Broker: " + brokerName);
-
-    const autoEnabled = !!user.autoTradingEnabled;
-    $("#autoMode") && ($("#autoMode").textContent = autoEnabled ? "ON" : "OFF");
-    const autoBtn = $("#toggleAutoBtn");
-    if (autoBtn) autoBtn.textContent = autoEnabled ? "Disable Auto Trading" : "Enable Auto Trading";
 
     const displayName = (user.name || user.email || "Account").trim();
     const firstName = displayName.split(" ")[0];
@@ -900,18 +932,8 @@
   });
 
   // ----------------------------------------
-  // Automation toggle
+  // Trading Engine toggle (combined logic above)
   // ----------------------------------------
-  $("#toggleAutoBtn")?.addEventListener("click", async () => {
-    const current = ($("#autoMode")?.textContent || "OFF").trim().toUpperCase();
-    const resp = await jpostAuth("/user/broker/automation", { enable: current !== "ON" });
-    if (!resp.ok) {
-      alert(resp.error || "Failed to update automation");
-      return;
-    }
-    await loadProfile();
-    await loadPlanStatus();
-  });
 
   // ----------------------------------------
   // Refresh buttons
