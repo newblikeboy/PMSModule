@@ -9,7 +9,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_this";
 const JWT_EXPIRES = "7d"; // 7 day session
 
 // Encryption key for broker tokens - should be in environment variables
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32); // 256 bits
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
+
 const ALGORITHM = "aes-256-cbc";
 
 async function hashPassword(plain) {
