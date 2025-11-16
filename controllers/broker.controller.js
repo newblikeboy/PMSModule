@@ -36,6 +36,7 @@ exports.connectBroker = async (req, res, next) => {
     req.user.broker.creds.clientId = clientId || ""; // Keep clientId plain text
     req.user.broker.creds.accessToken = encrypt(accessToken || "");
     req.user.broker.creds.refreshToken = encrypt(refreshToken || "");
+    req.user.broker.creds.exchangedAt = new Date();
     req.user.broker.creds.note = "Added via dashboard";
 
     await req.user.save();

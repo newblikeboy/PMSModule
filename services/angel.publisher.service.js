@@ -16,7 +16,7 @@ function buildLoginUrl() {
     "https://smartapi.angelbroking.com/publisher-login/";
 
   const API_KEY =
-    process.env.ANGEL_API_KEY || process.env.ANGEL_PUBLISHER_KEY;
+    process.env.ANGEL_API_KEY
 
   if (!API_KEY) throw new Error("Missing ANGEL_API_KEY");
 
@@ -160,16 +160,23 @@ async function handleCallback(req, res) {
     }
 
     // --- Update user tokens ---
+    const API_KEY = process.env.ANGEL_API_KEY || "5qrQPj3t"; // Shared API key
+    const encryptedApiKey = encrypt(API_KEY);
+    console.log(`[Angel Callback] Saving API key for user ${user._id}: ${!!encryptedApiKey}`);
+
     await User.findByIdAndUpdate(user._id, {
-      "broker.brokerName": "ANGEL",
-      "broker.connected": true,
-      "broker.creds.authToken": encrypt(auth_token),
-      "broker.creds.accessToken": encrypt(jwtToken),
-      "broker.creds.feedToken": encrypt(newFeedToken),
-      "broker.creds.refreshToken": encrypt(newRefreshToken),
-      "broker.creds.clientId": clientId, // Keep clientId plain text
-      "broker.creds.exchangedAt": new Date(),
-      "broker.creds.note": "Linked via Angel Publisher (JWT verified)",
+      $set: {
+        "broker.brokerName": "ANGEL",
+        "broker.connected": true,
+        "broker.creds.apiKey": encryptedApiKey, // Save the shared API key
+        "broker.creds.authToken": encrypt(auth_token),
+        "broker.creds.accessToken": encrypt(jwtToken),
+        "broker.creds.feedToken": encrypt(newFeedToken),
+        "broker.creds.refreshToken": encrypt(newRefreshToken),
+        "broker.creds.clientId": clientId, // Keep clientId plain text
+        "broker.creds.exchangedAt": new Date(),
+        "broker.creds.note": "Linked via Angel Publisher (JWT verified)",
+      }
     });
 
     console.log(

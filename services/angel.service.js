@@ -27,7 +27,7 @@ function buildHeaders(accessToken) {
 }
 
 async function getUserCreds(userId) {
-  const user = await User.findById(userId).select("broker");
+  const user = await User.findById(userId);
   const creds = user?.broker?.creds || {};
   if (!creds.accessToken) throw new Error("Angel access token missing");
 
@@ -39,11 +39,21 @@ async function getUserCreds(userId) {
     feedToken: decrypt(creds.feedToken || ""),
     refreshToken: decrypt(creds.refreshToken || ""),
     apiKey: decrypt(creds.apiKey || ""),
-      clientId: creds.clientId // Keep plain text
+    clientId: creds.clientId // Keep plain text
   };
+
+  // Log decryption status
+  console.log(`[getUserCreds] Decrypted tokens for user ${userId}: accessToken=${!!decryptedCreds.accessToken}, authToken=${!!decryptedCreds.authToken}, feedToken=${!!decryptedCreds.feedToken}, refreshToken=${!!decryptedCreds.refreshToken}, apiKey=${!!decryptedCreds.apiKey}`);
+
+  // Check if accessToken is empty after decryption
+  if (!decryptedCreds.accessToken) {
+    console.log(`[getUserCreds] Access token decryption failed for user ${userId}`);
+    throw new Error("Angel access token decryption failed");
+  }
 
   // Check if tokens are expired
   if (isAngelTokenExpired(decryptedCreds)) {
+    console.log(`[getUserCreds] Tokens expired for user ${userId}`);
     throw new Error("Angel access token expired");
   }
 
