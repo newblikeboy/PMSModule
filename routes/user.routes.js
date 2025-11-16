@@ -18,6 +18,8 @@ const angelPublisher = require("../services/angel.publisher.service");
 // Who am I / profile info
 router.get("/profile", authRequired, async (req, res) => {
   const u = req.user;
+  const { validateAngelConnection } = require("../controllers/broker.controller");
+  const isAngelConnected = await validateAngelConnection(u);
   res.json({
     ok: true,
     user: {
@@ -28,7 +30,7 @@ router.get("/profile", authRequired, async (req, res) => {
       role: u.role,
       plan: u.plan,
       broker: {
-        connected: u.broker.connected,
+        connected: isAngelConnected,
         brokerName: u.broker.brokerName,
         clientId: u.broker.creds.clientId || ""
       },
@@ -37,7 +39,7 @@ router.get("/profile", authRequired, async (req, res) => {
         allowedMarginPct: u.angelAllowedMarginPct,
         allowedMarginPercent: Math.round((u.angelAllowedMarginPct ?? 0) * 100),
         liveEnabled: u.angelLiveEnabled,
-        brokerConnected: u.broker.connected && u.broker.brokerName === "ANGEL"
+        brokerConnected: isAngelConnected
       }
     }
   });
@@ -106,7 +108,15 @@ router.post("/broker/client-id", authRequired, brokerCtrl.updateAngelClientId);
 // get angel funds
 router.get("/angel/funds", authRequired, async (req, res, next) => {
   try {
-    const { getFunds } = require("../services/angel.service");
+    const { getFunds, isAngelTokenExpired } = require("../services/angel.service");
+    const { validateAngelConnection } = require("../controllers/broker.controller");
+
+    // Check if connected and tokens valid
+    const isConnected = await validateAngelConnection(req.user);
+    if (!isConnected) {
+      return res.json({ ok: false, availableMargin: 0, error: "Angel not connected or tokens expired" });
+    }
+
     const funds = await getFunds(req.user._id);
     res.json({ ok: true, availableMargin: funds.availableMargin });
   } catch (err) {

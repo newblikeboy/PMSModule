@@ -439,8 +439,8 @@
       return;
     }
 
-    updateAngelUI(liveResp.angel || {});
-    await loadProfile(); // To update autoTradingEnabled
+    // Reload profile to get updated state
+    await loadProfile();
     await loadPlanStatus();
   });
 

@@ -2,6 +2,8 @@
 "use strict";
 
 const User = require("../models/User");
+const { isAngelTokenExpired } = require("../services/angel.service");
+const { encrypt } = require("../utils/auth");
 
 /**
  * POST /user/broker/connect
@@ -30,10 +32,10 @@ exports.connectBroker = async (req, res, next) => {
 
     req.user.broker.connected = true;
     req.user.broker.brokerName = brokerName;
-    req.user.broker.creds.apiKey = apiKey || "";
-    req.user.broker.creds.clientId = clientId || "";
-    req.user.broker.creds.accessToken = accessToken || "";
-    req.user.broker.creds.refreshToken = refreshToken || "";
+    req.user.broker.creds.apiKey = encrypt(apiKey || "");
+    req.user.broker.creds.clientId = clientId || ""; // Keep clientId plain text
+    req.user.broker.creds.accessToken = encrypt(accessToken || "");
+    req.user.broker.creds.refreshToken = encrypt(refreshToken || "");
     req.user.broker.creds.note = "Added via dashboard";
 
     await req.user.save();
@@ -58,14 +60,14 @@ exports.connectBroker = async (req, res, next) => {
 exports.getAngelSettings = async (req, res, next) => {
   try {
     const allowed = Number(req.user.angelAllowedMarginPct ?? 0.5);
+    const isConnected = await validateAngelConnection(req.user);
     res.json({
       ok: true,
       angel: {
         allowedMarginPct: allowed,
         allowedMarginPercent: Math.round(allowed * 100),
         liveEnabled: !!req.user.angelLiveEnabled,
-        brokerConnected:
-          !!req.user.broker?.connected && req.user.broker?.brokerName === "ANGEL"
+        brokerConnected: isConnected
       }
     });
   } catch (err) {
@@ -98,8 +100,7 @@ exports.updateAngelSettings = async (req, res, next) => {
 
     if (liveEnabled !== undefined) {
       const boolVal = liveEnabled === true || liveEnabled === "true" || liveEnabled === 1 || liveEnabled === "1";
-      const brokerOk =
-        !!req.user.broker?.connected && req.user.broker?.brokerName === "ANGEL";
+      const brokerOk = await validateAngelConnection(req.user);
       if (boolVal && !brokerOk) {
         return res.status(400).json({
           ok: false,
@@ -137,7 +138,8 @@ exports.setAutomation = async (req, res, next) => {
 
     // Safety rule:
     // Can only enable automation if broker is connected.
-    if (enable && !req.user.broker.connected) {
+    const brokerOk = await validateAngelConnection(req.user);
+    if (enable && !brokerOk) {
       return res.status(400).json({
         ok: false,
         error: "Connect broker first"
@@ -168,7 +170,7 @@ exports.updateAngelClientId = async (req, res, next) => {
       return res.status(400).json({ ok: false, error: "Valid Client ID required" });
     }
 
-    req.user.broker.creds.clientId = clientId.trim();
+    req.user.broker.creds.clientId = clientId.trim(); // Keep clientId plain text
     await req.user.save();
 
     res.json({
@@ -181,16 +183,45 @@ exports.updateAngelClientId = async (req, res, next) => {
 };
 
 /**
+ * Validate Angel connection and update if expired.
+ * @param {Object} user - User object
+ * @returns {boolean} true if connected and valid
+ */
+async function validateAngelConnection(user) {
+  if (!user.broker.connected || user.broker.brokerName !== "ANGEL") {
+    console.log(`[validateAngelConnection] User ${user._id}: Not connected or not ANGEL`);
+    return false;
+  }
+
+  const expired = isAngelTokenExpired(user.broker.creds);
+  console.log(`[validateAngelConnection] User ${user._id}: Token expired check = ${expired}, exchangedAt = ${user.broker.creds.exchangedAt}`);
+
+  if (expired) {
+    // Tokens expired, disconnect
+    console.log(`[validateAngelConnection] User ${user._id}: Disconnecting due to expired tokens`);
+    user.broker.connected = false;
+    await user.save();
+    return false;
+  }
+
+  console.log(`[validateAngelConnection] User ${user._id}: Connection valid`);
+  return true;
+}
+
+exports.validateAngelConnection = validateAngelConnection;
+
+/**
  * GET /user/broker/status
  * Returns broker + automation info for dashboard.
  */
 exports.getStatus = async (req, res, next) => {
   try {
     const u = req.user;
+    const isConnected = await validateAngelConnection(u);
     res.json({
       ok: true,
       broker: {
-        connected: u.broker.connected,
+        connected: isConnected,
         brokerName: u.broker.brokerName,
       },
       autoTradingEnabled: u.autoTradingEnabled

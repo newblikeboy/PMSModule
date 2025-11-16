@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const url = require("url");
 const qs = require("querystring");
+const { encrypt } = require("../utils/auth");
 
 /**
  * Step 1 → Build Angel Publisher Login URL
@@ -162,10 +163,11 @@ async function handleCallback(req, res) {
     await User.findByIdAndUpdate(user._id, {
       "broker.brokerName": "ANGEL",
       "broker.connected": true,
-      "broker.creds.authToken": auth_token,
-      "broker.creds.accessToken": jwtToken,
-      "broker.creds.feedToken": newFeedToken,
-      "broker.creds.refreshToken": newRefreshToken,
+      "broker.creds.authToken": encrypt(auth_token),
+      "broker.creds.accessToken": encrypt(jwtToken),
+      "broker.creds.feedToken": encrypt(newFeedToken),
+      "broker.creds.refreshToken": encrypt(newRefreshToken),
+      "broker.creds.clientId": clientId, // Keep clientId plain text
       "broker.creds.exchangedAt": new Date(),
       "broker.creds.note": "Linked via Angel Publisher (JWT verified)",
     });

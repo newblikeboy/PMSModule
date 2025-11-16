@@ -3,6 +3,7 @@
 const axios = require("axios");
 const User = require("../models/User");
 const { resolveToken } = require("./instruments.service");
+const { decrypt } = require("../utils/auth");
 
 const BASE_URL = process.env.ANGEL_BASE_URL || "https://apiconnect.angelone.in";
 const ORDER_URL =
@@ -29,7 +30,49 @@ async function getUserCreds(userId) {
   const user = await User.findById(userId).select("broker");
   const creds = user?.broker?.creds || {};
   if (!creds.accessToken) throw new Error("Angel access token missing");
-  return { user, creds };
+
+  // Decrypt tokens
+  const decryptedCreds = {
+    ...creds,
+    accessToken: decrypt(creds.accessToken),
+    authToken: decrypt(creds.authToken || ""),
+    feedToken: decrypt(creds.feedToken || ""),
+    refreshToken: decrypt(creds.refreshToken || ""),
+    apiKey: decrypt(creds.apiKey || ""),
+      clientId: creds.clientId // Keep plain text
+  };
+
+  // Check if tokens are expired
+  if (isAngelTokenExpired(decryptedCreds)) {
+    throw new Error("Angel access token expired");
+  }
+
+  return { user, creds: decryptedCreds };
+}
+
+/**
+ * Check if Angel tokens are expired (expire at 12 AM every day).
+ * @param {Object} creds - Broker creds
+ * @returns {boolean} true if expired
+ */
+function isAngelTokenExpired(creds) {
+  if (!creds.exchangedAt) {
+    console.log(`[isAngelTokenExpired] No exchangedAt timestamp found`);
+    return true; // No timestamp, assume expired
+  }
+
+  const now = new Date();
+  const exchanged = new Date(creds.exchangedAt);
+
+  // Create date for today at 12 AM
+  const todayMidnight = new Date(now);
+  todayMidnight.setHours(0, 0, 0, 0);
+
+  // If exchanged before today's midnight, token is expired
+  const expired = exchanged < todayMidnight;
+
+  console.log(`[isAngelTokenExpired] Now: ${now}, Exchanged: ${exchanged}, Today midnight: ${todayMidnight}, Expired: ${expired}`);
+  return expired;
 }
 
 /**
@@ -118,4 +161,4 @@ async function closePositionMarket({ symbol, qty, side = "SELL", userId }) {
   return placeMarketOrder({ symbol, qty, side, userId });
 }
 
-module.exports = { getFunds, placeMarketOrder, closePositionMarket };
+module.exports = { getFunds, placeMarketOrder, closePositionMarket, isAngelTokenExpired };
