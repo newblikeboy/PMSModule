@@ -1,10 +1,13 @@
 "use strict";
 
+const dotenv = require("dotenv")
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const url = require("url");
 const qs = require("querystring");
+
+dotenv.config()
 
 
 /**
@@ -15,8 +18,7 @@ function buildLoginUrl() {
     process.env.ANGEL_PUBLISHER_LOGIN ||
     "https://smartapi.angelbroking.com/publisher-login/";
 
-  const API_KEY =
-    process.env.ANGEL_API_KEY
+  const API_KEY = process.env.ANGEL_API_KEY
 
   if (!API_KEY) throw new Error("Missing ANGEL_API_KEY");
 
