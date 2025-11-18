@@ -3,7 +3,7 @@
 
 const User = require("../models/User");
 const { isAngelTokenExpired } = require("../services/angel.service");
-const { encrypt } = require("../utils/auth");
+
 
 /**
  * POST /user/broker/connect
@@ -32,10 +32,10 @@ exports.connectBroker = async (req, res, next) => {
 
     req.user.broker.connected = true;
     req.user.broker.brokerName = brokerName;
-    req.user.broker.creds.apiKey = encrypt(apiKey || "");
-    req.user.broker.creds.clientId = clientId || ""; // Keep clientId plain text
-    req.user.broker.creds.accessToken = encrypt(accessToken || "");
-    req.user.broker.creds.refreshToken = encrypt(refreshToken || "");
+    req.user.broker.creds.apiKey = apiKey;
+    req.user.broker.creds.clientId = clientId ; // Keep clientId plain text
+    req.user.broker.creds.accessToken = accessToken;
+    req.user.broker.creds.refreshToken = refreshToken;
     req.user.broker.creds.exchangedAt = new Date();
     req.user.broker.creds.note = "Added via dashboard";
 

@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const url = require("url");
 const qs = require("querystring");
-const { encrypt } = require("../utils/auth");
+
 
 /**
  * Step 1 → Build Angel Publisher Login URL
@@ -160,19 +160,18 @@ async function handleCallback(req, res) {
     }
 
     // --- Update user tokens ---
-    const API_KEY = process.env.ANGEL_API_KEY || "5qrQPj3t"; // Shared API key
-    const encryptedApiKey = encrypt(API_KEY);
-    console.log(`[Angel Callback] Saving API key for user ${user._id}: ${!!encryptedApiKey}`);
+
+
 
     await User.findByIdAndUpdate(user._id, {
       $set: {
         "broker.brokerName": "ANGEL",
         "broker.connected": true,
-        "broker.creds.apiKey": encryptedApiKey, // Save the shared API key
-        "broker.creds.authToken": encrypt(auth_token),
-        "broker.creds.accessToken": encrypt(jwtToken),
-        "broker.creds.feedToken": encrypt(newFeedToken),
-        "broker.creds.refreshToken": encrypt(newRefreshToken),
+        "broker.creds.apiKey": API_KEY, // Save the shared API key
+        "broker.creds.authToken": auth_token,
+        "broker.creds.accessToken": jwtToken,
+        "broker.creds.feedToken": newFeedToken,
+        "broker.creds.refreshToken": newRefreshToken,
         "broker.creds.clientId": clientId, // Keep clientId plain text
         "broker.creds.exchangedAt": new Date(),
         "broker.creds.note": "Linked via Angel Publisher (JWT verified)",
