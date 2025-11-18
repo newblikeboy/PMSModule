@@ -1,229 +1,188 @@
+// services/m2.service.js
 "use strict";
 
-const { DateTime } = require("luxon");
-const fy = require("./fyersSdk"); // history()
+const { fyersDataSocket } = require("fyers-api-v3");
+const fy = require("./fyersSdk"); 
+const { getSocketToken } = require("./fyersAuth");
 const { calcRSI14FromCandles } = require("../utils/indicators");
-const { IST } = require("../utils/time");
 const M2Signal = require("../models/M2Signal");
-const m1Service = require("./m1.service"); // reuse getMovers()
+const M1Mover = require("../models/M1Mover");
 
-/* ======================= Config ======================= */
-const CONFIG = Object.freeze({
-  SCAN_CONCURRENCY: Number(process.env.M2_SCAN_CONCURRENCY) || 6,
-  DB_BULK_CHUNK: Number(process.env.M2_DB_BULK_CHUNK) || 500, // safety chunk if list is huge
-  RSI_MIN_CANDLES: Number(process.env.M2_RSI_MIN_CANDLES) || 16, // 14 + buffer
-  RSI_LOWER: Number(process.env.M2_RSI_LOWER) || 40,
-  RSI_UPPER: Number(process.env.M2_RSI_UPPER) || 50,
-  MOVERS_TOP_N: Number(process.env.M2_MOVERS_TOP_N) || 0, // 0 = all movers
-  HISTORY_LOOKBACK_MINUTES: Number(process.env.M2_HISTORY_LOOKBACK_MINUTES) || 240, // 4 hours fallback
-  RSI_LOCAL_LIMIT: Number(process.env.M2_RSI_LOCAL_LIMIT) || 90,
-});
+const CONFIG = {
+  RSI_LOWER: 40,
+  RSI_UPPER: 50,
+  HISTORY_LOOKBACK_MINUTES: 240,
+  MAX_MIN_CANDLES: 200,
+  SOCKET_RECONNECT_MS: 5000
+};
 
-/* ======================= Small utils ======================= */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ---- IN-MEMORY STATE ----
+let socket = null;
+let movers = [];
+let minuteSeriesMap = new Map();
+let lastRSIValue = new Map();
 
-/** Stable concurrency pool with predictable parallelism */
-async function asyncPool(items, workerFn, concurrency = 5) {
-  if (!Array.isArray(items) || items.length === 0) return [];
-  if (concurrency < 1) concurrency = 1;
+// Utilities
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-  const ret = new Array(items.length);
-  let i = 0;
-  const executing = new Set();
+function minuteBucket(ts) {
+  return Math.floor(ts / 60000) * 60000;
+}
 
-  async function enqueue() {
-    if (i >= items.length) return;
-    const idx = i++;
-    const p = Promise.resolve()
-      .then(() => workerFn(items[idx], idx))
-      .then((v) => (ret[idx] = v))
-      .catch(() => (ret[idx] = undefined))
-      .finally(() => executing.delete(p));
-
-    executing.add(p);
-    if (executing.size >= concurrency) await Promise.race(executing);
-    return enqueue();
+function updateMinuteSeries(symbol, price, ts) {
+  const bucket = minuteBucket(ts);
+  let series = minuteSeriesMap.get(symbol);
+  if (!series) {
+    series = [];
+    minuteSeriesMap.set(symbol, series);
   }
 
-  const starters = Array.from({ length: Math.min(concurrency, items.length) }, enqueue);
-  await Promise.all(starters);
-  await Promise.all(executing);
+  let last = series[series.length - 1];
 
-  return ret;
-}
-
-/** Coerce a value to finite number or null */
-function num(x) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Normalize heterogeneous candle shapes to [ts, o, h, l, c, v] with numbers */
-function normalizeCandles(rawCandles) {
-  if (!Array.isArray(rawCandles)) return [];
-
-  const out = [];
-  for (const c of rawCandles) {
-    let ts, o, h, l, cl, v;
-    if (Array.isArray(c)) {
-      ts = num(c[0]); o = num(c[1]); h = num(c[2]); l = num(c[3]); cl = num(c[4]); v = num(c[5] ?? 0) ?? 0;
-    } else if (c && typeof c === "object") {
-      ts = num(c.t ?? c.time ?? c.timestamp ?? c[0]);
-      o = num(c.o ?? c.open ?? c.openPrice ?? c[1]);
-      h = num(c.h ?? c.high ?? c[2]);
-      l = num(c.l ?? c.low ?? c[3]);
-      cl = num(c.c ?? c.close ?? c.closePrice ?? c[4]);
-      v = num(c.v ?? c.volume) ?? 0;
+  if (!last || last[0] !== bucket) {
+    last = [bucket, price, price, price, price, 1];
+    series.push(last);
+    if (series.length > CONFIG.MAX_MIN_CANDLES) {
+      series.splice(0, series.length - CONFIG.MAX_MIN_CANDLES);
     }
-
-    if (cl == null || ts == null) continue; // need at least ts & close
-    out.push([ts, o ?? 0, h ?? 0, l ?? 0, cl, v]);
+  } else {
+    last[2] = Math.max(last[2], price);
+    last[3] = Math.min(last[3], price);
+    last[4] = price;
+    last[5] += 1;
   }
-
-  // sort by timestamp asc if not already
-  if (out.length > 1 && out[0][0] > out[out.length - 1][0]) {
-    out.sort((a, b) => a[0] - b[0]);
-  }
-  return out;
 }
 
-/* ======================= Data fetch ======================= */
-async function fetchMinuteCandlesFromHistory(symbol) {
-  const nowIst = DateTime.now().setZone(IST);
-  const from = nowIst.minus({ minutes: CONFIG.HISTORY_LOOKBACK_MINUTES }).toISODate();
-  const to = nowIst.toISODate();
+async function fetchHistorySeries(symbol) {
+  const now = Date.now();
+  const fromDate = new Date(now - CONFIG.HISTORY_LOOKBACK_MINUTES * 60000)
+    .toISOString().slice(0, 10);
+  const toDate = new Date(now).toISOString().slice(0, 10);
 
   const resp = await fy.getHistory({
     symbol,
     resolution: "1",
-    range_from: from,
-    range_to: to
+    range_from: fromDate,
+    range_to: toDate
   });
-  const raw = resp?.candles ?? resp?.data ?? [];
-  return normalizeCandles(raw);
+
+  const raw = resp?.candles || [];
+  const arr = raw.map(c => [c[0] * 1000, c[1], c[2], c[3], c[4], c[5]]);
+
+  const out = [];
+  for (const x of arr) {
+    const ts = minuteBucket(x[0]);
+    out.push([ts, x[1], x[2], x[3], x[4], x[5]]);
+  }
+  return out;
 }
 
-function mapLocalMinuteSeries(series = []) {
-  return series.map((c) => [
-    c.ts,
-    Number(c.o ?? c.open ?? c[1]) || 0,
-    Number(c.h ?? c.high ?? c[2]) || 0,
-    Number(c.l ?? c.low ?? c[3]) || 0,
-    Number(c.c ?? c.close ?? c[4]) || 0,
-    Number(c.v ?? c.volume ?? c[5]) || 0
-  ]);
-}
-
-async function fetchRecent1MinCandles(symbol) {
-  const localSeries = m1Service.getMinuteCandles
-    ? m1Service.getMinuteCandles(symbol, CONFIG.RSI_LOCAL_LIMIT)
-    : [];
-
-  if (Array.isArray(localSeries) && localSeries.length >= CONFIG.RSI_MIN_CANDLES) {
-    return mapLocalMinuteSeries(localSeries);
-  }
-
-  try {
-    return await fetchMinuteCandlesFromHistory(symbol);
-  } catch (err) {
-    console.error("[M2] History fallback failed for", symbol, err?.message || err);
-    return [];
-  }
-}
-
-/* ======================= Core scan ======================= */
-async function scanRSIEntryZone() {
-  // 1) Pull movers from M1 (requires engine running)
-  const m1Result = await m1Service.getMovers();
-  if (!m1Result?.ok || !Array.isArray(m1Result.data) || m1Result.data.length === 0) {
-    return { ok: true, data: [] };
-  }
-
-  // Optionally limit to top-N movers (heaviest % change first)
-  const movers = CONFIG.MOVERS_TOP_N > 0
-    ? m1Result.data.slice(0, CONFIG.MOVERS_TOP_N)
-    : m1Result.data;
-
-  // 2) Per mover: fetch 1m candles → RSI(14) → build payload + doc
-  const processed = await asyncPool(
-    movers,
-    async (stock) => {
-      const symbol = stock.symbol;
-      try {
-        const candles = await fetchRecent1MinCandles(symbol);
-        if (!Array.isArray(candles) || candles.length < CONFIG.RSI_MIN_CANDLES) return null;
-
-        // calcRSI14FromCandles expects [ts,o,h,l,c,v] arrays (close @ idx 4)
-        const rsi = await calcRSI14FromCandles(candles);
-        const r = num(rsi);
-        if (r == null) return null;
-
-        const inZone = r >= CONFIG.RSI_LOWER && r <= CONFIG.RSI_UPPER;
-
-        return {
-          doc: {
-            symbol,
-            rsi: r,
-            timeframe: "1m",
-            inEntryZone: inZone,
-            updatedAt: new Date()
-          },
-          payload: {
-            symbol,
-            rsi: r,
-            inEntryZone: inZone,
-            ltp: stock.ltp,
-            changePct: stock.changePct
-          }
-        };
-      } catch (err) {
-        console.error("[M2] RSI calc error for", symbol, err?.message || err);
-        return null;
-      }
-    },
-    CONFIG.SCAN_CONCURRENCY
-  );
-
-  // 3) Filter good results
-  const good = processed.filter(Boolean);
-  const out = good.map((g) => g.payload);
-
-  // 4) Persist using bulkWrite (efficient & atomic-ish per batch)
-  if (good.length) {
-    const ops = good.map(({ doc }) => ({
-      updateOne: {
-        filter: { symbol: doc.symbol },
-        update: { $set: doc },
-        upsert: true
-      }
-    }));
-
-    if (ops.length <= CONFIG.DB_BULK_CHUNK) {
-      try { await M2Signal.bulkWrite(ops, { ordered: false }); }
-      catch (e) { console.warn("[M2] bulkWrite failed:", e?.message || e); }
-    } else {
-      // safety chunking for extremely large lists
-      for (let i = 0; i < ops.length; i += CONFIG.DB_BULK_CHUNK) {
-        const chunk = ops.slice(i, i + CONFIG.DB_BULK_CHUNK);
-        try { await M2Signal.bulkWrite(chunk, { ordered: false }); }
-        catch (e) { console.warn("[M2] bulkWrite chunk failed:", e?.message || e); }
-        await sleep(5); // tiny breather for event loop fairness
-      }
+async function initHistoryForMovers() {
+  for (const m of movers) {
+    try {
+      const hist = await fetchHistorySeries(m.symbol);
+      minuteSeriesMap.set(m.symbol, hist);
+    } catch (err) {
+      console.log("[M2] History fetch failed for", m.symbol, err.message);
     }
+    await sleep(150);
   }
-
-  // 5) Sort — inZone first, then lower RSI first
-  out.sort((a, b) => (b.inEntryZone - a.inEntryZone) || (a.rsi - b.rsi));
-  return { ok: true, data: out };
 }
 
-/* ======================= Read latest (no recompute) ======================= */
-async function getLatestSignalsFromDB() {
-  const docs = await M2Signal.find().sort({ updatedAt: -1 }).limit(200).lean();
-  return { ok: true, data: docs };
+async function computeRSIAndStore(symbol, price) {
+  const candles = minuteSeriesMap.get(symbol);
+  if (!candles || candles.length < 20) return;
+
+  const rsi = await calcRSI14FromCandles(candles);
+  if (!Number.isFinite(rsi)) return;
+
+  const last = lastRSIValue.get(symbol);
+  if (last && Math.abs(last - rsi) < 0.05) return;
+
+  lastRSIValue.set(symbol, rsi);
+
+  const inZone = rsi >= CONFIG.RSI_LOWER && rsi <= CONFIG.RSI_UPPER;
+
+  if (inZone) {
+    await M2Signal.findOneAndUpdate(
+      { symbol },
+      {
+        symbol,
+        rsi: Number(rsi.toFixed(2)),
+        timeframe: "1m",
+        inEntryZone: true,
+        updatedAt: new Date()
+      },
+      { upsert: true }
+    );
+
+    console.log(`[M2 SIGNAL] ${symbol} → RSI ${rsi.toFixed(2)} (40–50 zone)`);
+  }
+}
+
+// ---- SOCKET HANDLING ----
+async function connectSocket() {
+  const token = await getSocketToken();
+  socket = new fyersDataSocket(token);
+
+  socket.on("connect", () => {
+    console.log("[M2] WebSocket connected");
+    const symbols = movers.map(m => m.symbol);
+    socket.subscribe(symbols);
+    if (socket.LiteMode) socket.mode(socket.LiteMode);
+  });
+
+  socket.on("message", async (msg) => {
+    const data = Array.isArray(msg) ? msg : msg.d || msg.data || [msg];
+    for (const t of data) {
+      const sym = t.symbol || t.s;
+      let price = t.ltp || t.lp || t.c || t.v?.lp;
+      if (!sym || !Number.isFinite(Number(price))) continue;
+
+      price = Number(price);
+      const ts = (t.timestamp || Date.now()) * 1000;
+
+      updateMinuteSeries(sym, price, ts);
+      await computeRSIAndStore(sym, price);
+    }
+  });
+
+  socket.on("close", () => {
+    console.log("[M2] Socket closed. Reconnecting...");
+    setTimeout(connectSocket, CONFIG.SOCKET_RECONNECT_MS);
+  });
+
+  socket.on("error", (e) => {
+    console.log("[M2] Socket error:", e.message);
+  });
+
+  socket.connect();
+}
+
+// ---- MAIN ENTRY ----
+async function startM2Engine() {
+  console.log("========== M2 ENGINE STARTING ==========");
+
+  movers = await M1Mover.find().lean();
+
+  if (!movers.length) {
+    console.log("[M2] No movers found in DB");
+    return { ok: false, message: "No movers in database" };
+  }
+
+  console.log(`[M2] Loaded ${movers.length} movers from DB`);
+
+  await initHistoryForMovers();
+
+  await connectSocket();
+
+  return {
+    ok: true,
+    message: "M2 Engine running live RSI monitoring",
+    moverCount: movers.length
+  };
 }
 
 module.exports = {
-  scanRSIEntryZone,
-  getLatestSignalsFromDB
+  startM2Engine
 };

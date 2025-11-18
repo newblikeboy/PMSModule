@@ -2,22 +2,21 @@
 "use strict";
 
 /**
- * Per-user trade engine with:
- *  - paper vs live (global + per-user)
- *  - dynamic qty from user's allowed margin % (Angel Publisher funds)
- *  - one trade at a time (per user)
- *  - no new entries after 14:45 IST
- *  - live PnL snapshot
- *
- * Works in two modes:
- *  - Per-user:  autoEnterOnSignal(userId)
- *  - Bulk:      autoEnterOnSignal()  // iterates eligible users (autoTradingEnabled + broker connected)
+ * FINAL UPDATED TRADE ENGINE
+ * ---------------------------
+ * ✓ User Trading Engine ON/OFF decides LIVE or PAPER
+ * ✓ Reads signals from M2Signal DB (not m2Service)
+ * ✓ Only 1 open trade per user at a time
+ * ✓ Sequential trade execution (queue behaviour)
+ * ✓ Allowed margin % per user → dynamic qty
+ * ✓ No new trades after 14:45 IST
+ * ✓ Real-time PnL available
  */
 
 const { DateTime } = require("luxon");
 const PaperTrade = require("../models/PaperTrade");
 const User = require("../models/User");
-const m2Service = require("./m2.service");
+const M2Signal = require("../models/M2Signal");
 const fy = require("./fyersSdk");
 const { getSettings } = require("./settings.service");
 const angelTrade = require("./angel.trade.service");
@@ -27,10 +26,10 @@ const { resolveToken } = require("./instruments.service");
 const CFG = Object.freeze({
   IST: "Asia/Kolkata",
   CUT_H: 14,
-  CUT_M: 45, // no new entries after 14:45 IST
+  CUT_M: 45, // no entries after 14:45 IST
   TARGET_PCT: Number(process.env.TARGET_PCT) || 1.5,
   STOP_PCT: Number(process.env.STOP_PCT) || 0.75,
-  BULK_MAX_USERS: Number(process.env.ENGINE_BULK_MAX_USERS) || 20, // safety cap
+  BULK_MAX_USERS: Number(process.env.ENGINE_BULK_MAX_USERS) || 50,
 });
 
 // ---------------- Small utils ----------------
@@ -55,21 +54,21 @@ async function fetchBatchLTP(symbols = []) {
   if (!symbols.length) return {};
   try {
     const rows = await fy.getQuotes(symbols);
-    const out = {};
-    for (const r of rows || []) if (r?.symbol) out[r.symbol] = num(r.ltp);
-    return out;
+    const map = {};
+    for (const r of rows || []) if (r?.symbol) map[r.symbol] = num(r.ltp);
+    return map;
   } catch {
     return {};
   }
 }
 
-// Per-user lock: one OPEN at a time
+// LOCKS: prevent simultaneous entry for the same user
 const _locks = new Map();
-function isLocked(userId) { return !!_locks.get(String(userId)); }
-function lock(userId) { _locks.set(String(userId), true); }
-function unlock(userId) { _locks.delete(String(userId)); }
+const isLocked = (uid) => _locks.get(String(uid));
+const lock = (uid) => _locks.set(String(uid), true);
+const unlock = (uid) => _locks.delete(String(uid));
 
-// ---------------- Core helpers ----------------
+// ---------------- Core Helpers ----------------
 async function computeLiveQty(user, entryPrice) {
   const allowed = Number(user.angelAllowedMarginPct ?? 0.5);
   const funds = await angelTrade.getFunds(user._id);
@@ -78,97 +77,93 @@ async function computeLiveQty(user, entryPrice) {
   return Math.max(1, Math.floor(usable / entryPrice));
 }
 
-function decideMode(user, globalSettings) {
-  // If market is halted, do nothing
+function decideTradeMode(user, globalSettings) {
   if (globalSettings.marketHalt) return "off";
+  if (!user.tradingEngineEnabled) return "paper"; // user has engine OFF ⇒ paper only
 
-  // Per-user + global switches
-  const perUserLive = !!user.angelLiveEnabled;
-  const globalLive = !!globalSettings.isLiveExecutionAllowed;
-  if (perUserLive && globalLive) return "live";
+  const liveAllowedUser = !!user.angelLiveEnabled;
+  const liveAllowedGlobal = !!globalSettings.isLiveExecutionAllowed;
 
-  if (globalSettings.isPaperTradingActive) return "paper";
-  return "off";
+  if (liveAllowedUser && liveAllowedGlobal) return "live";
+  return "paper";
 }
 
-async function buildTradeDocBase({ user, symbol, entryPrice, rsiAtEntry, changePctAtEntry }) {
+async function buildTradeDocument({ user, sig, entryPrice }) {
   return {
     userId: user._id,
-    symbol,
+    symbol: sig.symbol,
     entryPrice,
     targetPrice: entryPrice * (1 + CFG.TARGET_PCT / 100),
     stopPrice: entryPrice * (1 - CFG.STOP_PCT / 100),
-    rsiAtEntry,
-    changePctAtEntry,
+    rsiAtEntry: sig.rsi,
+    changePctAtEntry: sig.changePct,
   };
 }
 
-// Place a live market BUY via Angel Publisher
-async function placeLiveTrade({ user, symbol, qty }) {
-  // Resolve Angel symboltoken
+async function placeLiveBuy(user, symbol, qty) {
   const token = await resolveToken(symbol);
   if (!token) return { ok: false, error: "symboltoken not found for " + symbol };
 
-  const res = await angelTrade.placeMarketOrder({
+  return angelTrade.placeMarketOrder({
     userId: user._id,
     symbol,
     symboltoken: token,
     qty,
     side: "BUY",
   });
-  return res;
 }
 
-// ---------------- Engine (per-user) ----------------
-async function _enterForUser(user) {
+// ---------------- ENTRY LOGIC ----------------
+async function tryEnterTrade(user) {
   const gs = getSettings();
 
-  // no new entries after cutoff
-  if (isAfterEntryCutoff()) return { ok: true, msg: "cutoff passed" };
+  // 1) Do not trade after cutoff
+  if (isAfterEntryCutoff()) return { ok: true, msg: "entry cutoff passed" };
 
-  const mode = decideMode(user, gs);
+  // 2) Decide live/paper/off
+  const mode = decideTradeMode(user, gs);
   if (mode === "off") return { ok: true, msg: "trading disabled" };
 
-  // Ensure broker connected if trying live
+  // 3) Validate broker connection for LIVE
   if (mode === "live") {
-    const brokerOk =
-      user?.broker?.brokerName?.toUpperCase?.() === "ANGEL" &&
-      !!user?.broker?.connected &&
-      !!user?.broker?.creds?.accessToken &&
-      !!user?.broker?.creds?.apiKey;
-    if (!brokerOk) return { ok: false, error: "Angel not connected for user" };
+    const ok =
+      user?.broker?.brokerName?.toUpperCase() === "ANGEL" &&
+      user?.broker?.connected &&
+      user?.broker?.creds?.accessToken &&
+      user?.broker?.creds?.apiKey;
+
+    if (!ok) return { ok: false, error: "Angel not connected for live trade" };
   }
 
-  // one open trade per user
-  const open = await PaperTrade.findOne({ userId: user._id, status: "OPEN" }).lean();
-  if (open) return { ok: true, msg: "user has an OPEN trade" };
+  // 4) Ensure only 1 open trade
+  const open = await PaperTrade.findOne({ userId: user._id, status: "OPEN" });
+  if (open) return { ok: true, msg: "user already has open trade" };
 
-  // scan M2 (uses M1 movers internally)
-  const scan = await m2Service.scanRSIEntryZone();
-  const sig = scan?.data?.find((s) => s.inEntryZone);
-  if (!sig) return { ok: true, msg: "no entry signal" };
+  // 5) Read latest entry signal from M2Signal DB
+  const sig = await M2Signal.findOne({ inEntryZone: true })
+    .sort({ updatedAt: -1 })
+    .lean();
 
-  const ltp = num(sig.ltp) ?? (await fetchLTP(sig.symbol));
-  if (!ltp) return { ok: true, msg: "no LTP" };
+  if (!sig) return { ok: true, msg: "no active entry signal" };
 
-  // qty
+  // 6) Fetch LTP
+  const ltp = await fetchLTP(sig.symbol);
+  if (!ltp) return { ok: false, error: "LTP not available" };
+
+  // 7) Calculate quantity
   let qty = 1;
   if (mode === "live") {
     qty = await computeLiveQty(user, ltp);
-    if (!Number.isFinite(qty) || qty < 1) return { ok: true, msg: "insufficient margin" };
+    if (!qty || qty < 1) return { ok: false, error: "insufficient margin" };
   }
 
-  const base = await buildTradeDocBase({
-    user,
-    symbol: sig.symbol,
-    entryPrice: ltp,
-    rsiAtEntry: sig.rsi,
-    changePctAtEntry: sig.changePct,
-  });
+  // 8) Prepare trade document
+  const baseDoc = await buildTradeDocument({ user, sig, entryPrice: ltp });
 
+  // 9) PAPER TRADE
   if (mode === "paper") {
     const doc = await PaperTrade.create({
-      ...base,
+      ...baseDoc,
       qty,
       tradeMode: "paper",
       broker: "PAPER",
@@ -177,44 +172,45 @@ async function _enterForUser(user) {
     return { ok: true, trade: doc };
   }
 
-  // LIVE
-  const live = await placeLiveTrade({ user, symbol: sig.symbol, qty });
-  if (!live?.ok) return { ok: false, error: live?.error || "live order failed" };
+  // 10) LIVE TRADE
+  const placed = await placeLiveBuy(user, sig.symbol, qty);
+  if (!placed.ok) return { ok: false, error: placed.error };
 
   const doc = await PaperTrade.create({
-    ...base,
+    ...baseDoc,
     qty,
     tradeMode: "live",
     broker: "ANGEL_ONE",
-    brokerOrderId: live.orderId,
+    brokerOrderId: placed.orderId,
     status: "OPEN",
   });
+
   return { ok: true, trade: doc };
 }
 
-async function _checkExitsForUser(userId) {
-  const q = { userId, status: "OPEN" };
-  const openTrades = await PaperTrade.find(q).lean();
+// ---------------- EXIT LOGIC ----------------
+async function tryExitTradesForUser(userId) {
+  const openTrades = await PaperTrade.find({ userId, status: "OPEN" }).lean();
   if (!openTrades.length) return { ok: true, closed: [] };
 
-  const symbols = Array.from(new Set(openTrades.map((t) => t.symbol)));
+  const symbols = [...new Set(openTrades.map((t) => t.symbol))];
   const ltpMap = await fetchBatchLTP(symbols);
 
   const closed = [];
-  for (const tr of openTrades) {
-    const ltp = ltpMap[tr.symbol];
-    if (ltp == null) continue;
+  for (const t of openTrades) {
+    const ltp = num(ltpMap[t.symbol]);
+    if (!ltp) continue;
 
     let reason = "";
-    if (ltp >= tr.targetPrice) reason = "TARGET";
-    else if (ltp <= tr.stopPrice) reason = "STOPLOSS";
+    if (ltp >= t.targetPrice) reason = "TARGET";
+    if (ltp <= t.stopPrice) reason = "STOPLOSS";
     if (!reason) continue;
 
     const exitPrice = ltp;
-    const pnlAbs = (exitPrice - tr.entryPrice) * tr.qty;
-    const pnlPct = ((exitPrice - tr.entryPrice) / tr.entryPrice) * 100;
+    const pnlAbs = (exitPrice - t.entryPrice) * t.qty;
+    const pnlPct = ((exitPrice - t.entryPrice) / t.entryPrice) * 100;
 
-    await PaperTrade.findByIdAndUpdate(tr._id, {
+    await PaperTrade.findByIdAndUpdate(t._id, {
       $set: {
         exitPrice,
         exitTime: new Date(),
@@ -225,208 +221,159 @@ async function _checkExitsForUser(userId) {
       },
     });
 
-    closed.push({
-      _id: tr._id,
-      symbol: tr.symbol,
-      exitPrice,
-      pnlAbs,
-      pnlPct,
-      notes: reason,
-    });
+    closed.push({ ...t, exitPrice, pnlAbs, pnlPct, reason });
   }
+
   return { ok: true, closed };
 }
 
-// ---------------- Public API ----------------
+// ---------------- PUBLIC METHODS ----------------
 
 /**
- * Auto-enter for a single user OR for all eligible users (bulk)
- * @param {string|undefined} userId
+ * Entry for one user or bulk users
  */
 async function autoEnterOnSignal(userId) {
-  // Single-user path
+  // Single user
   if (userId) {
     if (isLocked(userId)) return { ok: true, msg: "locked" };
     lock(userId);
     try {
       const user = await User.findById(userId);
       if (!user) return { ok: false, error: "user not found" };
-      const r = await _enterForUser(user);
-      return r;
-    } catch (e) {
-      return { ok: false, error: e.message };
+      return await tryEnterTrade(user);
+    } catch (err) {
+      return { ok: false, error: err.message };
     } finally {
       unlock(userId);
     }
   }
 
-  // Bulk path: pick eligible users (cap for safety)
-  const users = await User.find({
-    autoTradingEnabled: true,
-    // Either paper globally, or live allowed + broker connected
-    // (mode will be decided per user)
-  })
-    .select("_id angelLiveEnabled angelAllowedMarginPct broker autoTradingEnabled")
+  // Bulk mode
+  const users = await User.find({ tradingEngineEnabled: true })
     .limit(CFG.BULK_MAX_USERS)
     .lean();
 
-  const results = [];
-  for (const u of users) {
-    const id = String(u._id);
+  const out = [];
+  for (const usr of users) {
+    const id = String(usr._id);
     if (isLocked(id)) {
-      results.push({ userId: id, ok: true, msg: "locked" });
+      out.push({ userId: id, msg: "locked" });
       continue;
     }
     lock(id);
     try {
-      const full = await User.findById(id); // get full doc for safe access in helpers
-      const r = await _enterForUser(full);
-      results.push({ userId: id, ...r });
-    } catch (e) {
-      results.push({ userId: id, ok: false, error: e.message });
+      const fullUser = await User.findById(id);
+      const r = await tryEnterTrade(fullUser);
+      out.push({ userId: id, ...r });
+    } catch (err) {
+      out.push({ userId: id, ok: false, error: err.message });
     } finally {
       unlock(id);
-    }
-  }
-  return { ok: true, results };
-}
-
-/**
- * Check exits for one user, or all users with OPEN trades
- */
-async function checkOpenTradesAndUpdate(userId) {
-  if (userId) {
-    return _checkExitsForUser(userId);
-  }
-
-  // Bulk: find distinct userIds with OPEN trades
-  const rows = await PaperTrade.aggregate([
-    { $match: { status: "OPEN" } },
-    { $group: { _id: "$userId" } },
-    { $limit: 200 },
-  ]);
-  const userIds = rows.map((r) => String(r._id)).filter(Boolean);
-
-  const out = [];
-  for (const id of userIds) {
-    try {
-      const r = await _checkExitsForUser(id);
-      out.push({ userId: id, ...r });
-    } catch (e) {
-      out.push({ userId: id, ok: false, error: e.message });
     }
   }
   return { ok: true, results: out };
 }
 
 /**
- * Live PnL snapshot for one user (or combined if not provided)
+ * Check exit conditions for one user or all users
+ */
+async function checkOpenTradesAndUpdate(userId) {
+  if (userId) return tryExitTradesForUser(userId);
+
+  const rows = await PaperTrade.aggregate([
+    { $match: { status: "OPEN" } },
+    { $group: { _id: "$userId" } },
+    { $limit: 200 },
+  ]);
+
+  const out = [];
+  for (const r of rows) {
+    const uid = String(r._id);
+    const res = await tryExitTradesForUser(uid);
+    out.push({ userId: uid, ...res });
+  }
+  return { ok: true, results: out };
+}
+
+/**
+ * Live PnL Snapshot
  */
 async function getLivePnLSnapshot(userId) {
-  const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+  const sod = new Date(new Date().setHours(0, 0, 0, 0));
 
   if (userId) {
-    const [openTrades, closedToday] = await Promise.all([
+    const [open, closedToday] = await Promise.all([
       PaperTrade.find({ userId, status: "OPEN" }).lean(),
-      PaperTrade.find({ userId, status: "CLOSED", exitTime: { $gte: startOfDay } }).lean(),
+      PaperTrade.find({ userId, status: "CLOSED", exitTime: { $gte: sod } }).lean(),
     ]);
 
-    const symbols = Array.from(new Set(openTrades.map((t) => t.symbol)));
+    const symbols = [...new Set(open.map((x) => x.symbol))];
     const ltpMap = await fetchBatchLTP(symbols);
 
-    const open = openTrades.map((t) => {
-      const ltp = ltpMap[t.symbol];
-      const pnlAbs = num(ltp) != null ? (ltp - t.entryPrice) * t.qty : null;
-      const pnlPct = num(ltp) != null ? ((ltp - t.entryPrice) / t.entryPrice) * 100 : null;
-      return {
-        _id: t._id,
-        userId: t.userId,
-        symbol: t.symbol,
-        mode: t.tradeMode || "paper",
-        qty: t.qty,
-        entryPrice: t.entryPrice,
-        targetPrice: t.targetPrice,
-        stopPrice: t.stopPrice,
-        ltp: num(ltp),
-        pnlAbs,
-        pnlPct,
-        notes: t.notes,
-      };
+    const openMapped = open.map((t) => {
+      const ltp = num(ltpMap[t.symbol]);
+      const pnlAbs = ltp != null ? (ltp - t.entryPrice) * t.qty : null;
+      const pnlPct = ltp != null ? ((ltp - t.entryPrice) / t.entryPrice) * 100 : null;
+      return { ...t, ltp, pnlAbs, pnlPct };
     });
 
-    const unrealizedPnlAbs = open.reduce((s, r) => s + (Number(r.pnlAbs) || 0), 0);
-    const realizedToday = closedToday.reduce((s, r) => s + (Number(r.pnlAbs) || 0), 0);
+    const unrealized = openMapped.reduce((s, r) => s + (r.pnlAbs || 0), 0);
+    const realized = closedToday.reduce((s, r) => s + (r.pnlAbs || 0), 0);
 
     return {
       ok: true,
-      open,
+      open: openMapped,
       totals: {
-        unrealizedPnlAbs,
-        unrealizedPctAvg: open.length
-          ? open.reduce((s, r) => s + (Number(r.pnlPct) || 0), 0) / open.length
-          : 0,
-        realizedToday,
-        netToday: realizedToday + unrealizedPnlAbs,
+        unrealizedPnlAbs: unrealized,
+        realizedToday: realized,
+        netToday: realized + unrealized,
       },
     };
   }
 
-  // Combined snapshot (optional)
-  const [openTrades, closedToday] = await Promise.all([
+  // Combined snapshot
+  const [open, closed] = await Promise.all([
     PaperTrade.find({ status: "OPEN" }).lean(),
-    PaperTrade.find({ status: "CLOSED", exitTime: { $gte: startOfDay } }).lean(),
+    PaperTrade.find({ status: "CLOSED", exitTime: { $gte: sod } }).lean(),
   ]);
 
   const byUser = new Map();
-  for (const t of openTrades) {
-    if (!byUser.has(String(t.userId))) byUser.set(String(t.userId), []);
-    byUser.get(String(t.userId)).push(t);
+  for (const t of open) {
+    const uid = String(t.userId);
+    if (!byUser.has(uid)) byUser.set(uid, []);
+    byUser.get(uid).push(t);
   }
 
-  const results = [];
-  for (const [uid, list] of byUser.entries()) {
-    const symbols = Array.from(new Set(list.map((t) => t.symbol)));
+  const result = [];
+  for (const [uid, trades] of byUser.entries()) {
+    const symbols = [...new Set(trades.map((t) => t.symbol))];
     const ltpMap = await fetchBatchLTP(symbols);
-    const open = list.map((t) => {
-      const ltp = ltpMap[t.symbol];
-      const pnlAbs = num(ltp) != null ? (ltp - t.entryPrice) * t.qty : null;
-      const pnlPct = num(ltp) != null ? ((ltp - t.entryPrice) / t.entryPrice) * 100 : null;
-      return {
-        _id: t._id,
-        userId: t.userId,
-        symbol: t.symbol,
-        mode: t.tradeMode || "paper",
-        qty: t.qty,
-        entryPrice: t.entryPrice,
-        targetPrice: t.targetPrice,
-        stopPrice: t.stopPrice,
-        ltp: num(ltp),
-        pnlAbs,
-        pnlPct,
-        notes: t.notes,
-      };
+
+    const mapped = trades.map((t) => {
+      const ltp = num(ltpMap[t.symbol]);
+      const pnlAbs = ltp != null ? (ltp - t.entryPrice) * t.qty : null;
+      const pnlPct = ltp != null ? ((ltp - t.entryPrice) / t.entryPrice) * 100 : null;
+      return { ...t, ltp, pnlAbs, pnlPct };
     });
 
-    const realizedToday = closedToday
+    const realized = closed
       .filter((x) => String(x.userId) === uid)
-      .reduce((s, r) => s + (Number(r.pnlAbs) || 0), 0);
-    const unrealizedPnlAbs = open.reduce((s, r) => s + (Number(r.pnlAbs) || 0), 0);
+      .reduce((s, r) => s + (r.pnlAbs || 0), 0);
 
-    results.push({
+    const unrealized = mapped.reduce((s, r) => s + (r.pnlAbs || 0), 0);
+
+    result.push({
       userId: uid,
-      open,
+      open: mapped,
       totals: {
-        unrealizedPnlAbs,
-        unrealizedPctAvg: open.length
-          ? open.reduce((s, r) => s + (Number(r.pnlPct) || 0), 0) / open.length
-          : 0,
-        realizedToday,
-        netToday: realizedToday + unrealizedPnlAbs,
+        unrealizedPnlAbs: unrealized,
+        realizedToday: realized,
+        netToday: realized + unrealized,
       },
     });
   }
 
-  return { ok: true, results };
+  return { ok: true, results: result };
 }
 
 module.exports = {
