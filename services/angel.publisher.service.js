@@ -169,7 +169,7 @@ async function handleCallback(req, res) {
       $set: {
         "broker.brokerName": "ANGEL",
         "broker.connected": true,
-        "broker.creds.apiKey": API_KEY, // Save the shared API key
+        "broker.creds.apiKey": process.env.API_KEY, // Save the shared API key
         "broker.creds.authToken": auth_token,
         "broker.creds.accessToken": jwtToken,
         "broker.creds.feedToken": newFeedToken,
