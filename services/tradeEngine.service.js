@@ -376,8 +376,59 @@ async function getLivePnLSnapshot(userId) {
   return { ok: true, results: result };
 }
 
+/**
+ * Get all trades for admin interface with current PnL
+ */
+async function getAllTrades() {
+  try {
+    const trades = await PaperTrade.find().sort({ entryTime: -1 }).lean();
+    
+    // Get unique symbols for batch LTP fetch
+    const symbols = [...new Set(trades.map(t => t.symbol))];
+    const ltpMap = await fetchBatchLTP(symbols);
+    
+    // Enrich trades with current prices
+    const enrichedTrades = trades.map(trade => {
+      const ltp = ltpMap[trade.symbol];
+      const isOpen = trade.status === "OPEN";
+      
+      return {
+        _id: trade._id,
+        symbol: trade.symbol,
+        direction: "BUY", // Assuming all trades are BUY for now
+        quantity: trade.qty,
+        entryPrice: trade.entryPrice,
+        targetPrice: trade.targetPrice,
+        stopPrice: trade.stopPrice,
+        currentPrice: ltp || trade.entryPrice,
+        status: trade.status,
+        entryTime: trade.entryTime,
+        exitTime: trade.exitTime,
+        updatedAt: isOpen ? new Date() : trade.exitTime,
+        pnlAbs: trade.pnlAbs,
+        pnlPct: trade.pnlPct,
+        notes: trade.notes
+      };
+    });
+    
+    return {
+      ok: true,
+      trades: enrichedTrades,
+      count: enrichedTrades.length
+    };
+  } catch (err) {
+    console.error("[TradeEngine] Error in getAllTrades:", err.message);
+    return {
+      ok: false,
+      error: err.message,
+      trades: []
+    };
+  }
+}
+
 module.exports = {
   autoEnterOnSignal,
   checkOpenTradesAndUpdate,
   getLivePnLSnapshot,
+  getAllTrades,
 };

@@ -183,6 +183,68 @@ async function startM2Engine() {
   };
 }
 
+// ---- SIGNAL RETRIEVAL FOR UI ----
+async function getLatestSignalsFromDB() {
+  try {
+    // Get today's M1 movers to calculate current LTP and provide entry/stop targets
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const movers = await M1Mover.find({ capturedAt: { $gte: today } }).lean();
+    
+    // Get current signals from M2
+    const signals = await M2Signal.find({ inEntryZone: true }).lean();
+    
+    // Build enriched signals with current price data
+    const enrichedSignals = [];
+    const symbols = signals.map(s => s.symbol);
+    
+    if (symbols.length > 0) {
+      try {
+        const quotes = await fy.getQuotes(symbols);
+        const quoteMap = new Map();
+        quotes.forEach(q => quoteMap.set(q.symbol, q));
+        
+        for (const signal of signals) {
+          const quote = quoteMap.get(signal.symbol);
+          if (quote && quote.ltp) {
+            const entryPrice = Number(quote.ltp);
+            const targetPrice = entryPrice * 1.015; // +1.5%
+            const stopPrice = entryPrice * 0.9925; // -0.75%
+            
+            enrichedSignals.push({
+              symbol: signal.symbol,
+              rsi: signal.rsi,
+              timeframe: signal.timeframe,
+              inEntryZone: signal.inEntryZone,
+              ltp: entryPrice,
+              target: targetPrice,
+              stop: stopPrice,
+              updatedAt: signal.updatedAt,
+              reason: `RSI ${signal.rsi} in entry zone (40-50)`
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[M2] Error fetching quotes for signals:", err.message);
+      }
+    }
+    
+    return {
+      ok: true,
+      data: enrichedSignals,
+      count: enrichedSignals.length
+    };
+  } catch (err) {
+    console.error("[M2] Error in getLatestSignalsFromDB:", err.message);
+    return {
+      ok: false,
+      error: err.message,
+      data: []
+    };
+  }
+}
+
 module.exports = {
-  startM2Engine
+  startM2Engine,
+  getLatestSignalsFromDB
 };

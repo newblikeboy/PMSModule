@@ -78,34 +78,11 @@ app.use("/fyers", fyersRoutes);
 app.use("/", require("./routes/angel.auth.routes")); // /auth/angel/login + /auth/angel/callback
 
 // ------------------------------
-// 🧩 Testing Purpose - Live Tick Data Stream
+// 🧩 Live Tick Data Stream (Simplified)
 // ------------------------------
-const m1Service = require("./services/m1.service"); // adjust path to match your project
-
 app.get("/api/socket-stream", (req, res) => {
-  try {
-    if (m1Service && typeof m1Service._getLtpSnapshot === "function") {
-      const snapshot = m1Service._getLtpSnapshot() || [];
-      return res.json(snapshot.slice(-50));
-    }
-
-    if (global.ltpMap && typeof global.ltpMap.entries === "function") {
-      const arr = Array.from(global.ltpMap.entries()).map(([symbol, ltp]) => ({
-        symbol,
-        ltp: Number(ltp),
-        ts: Date.now(),
-      }));
-      return res.json(arr.slice(-50));
-    }
-
-    const msg =
-      "No ltp snapshot available. Export _getLtpSnapshot() from m1 service or set global.ltpMap = ltpMap.";
-    console.warn("/api/socket-stream:", msg);
-    return res.status(500).json({ error: msg });
-  } catch (err) {
-    console.error("/api/socket-stream error:", err?.stack || err);
-    return res.status(500).json({ error: String(err?.message || err) });
-  }
+  // Return empty array for now - this endpoint can be enhanced later with real tick data
+  return res.json([]);
 });
 
 // ------------------------------
