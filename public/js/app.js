@@ -834,32 +834,65 @@
   }
 
   async function loadTrades() {
-    const result = await jgetAuth("/user/trades");
+    const result = await jgetAuth("/trade/all");
     const tableBody = $("#tradesTableBody");
     if (!tableBody) return;
 
     tableBody.innerHTML = "";
     if (!result || !result.ok) {
-      tableBody.innerHTML = `<tr><td colspan="6">No data / error</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="8">No data / error</td></tr>`;
       return;
     }
 
     const trades = result.trades || [];
     if (!trades.length) {
-      tableBody.innerHTML = `<tr><td colspan="6">No trades yet</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="8">No trades yet</td></tr>`;
       return;
     }
 
+    // Get live P&L data for open trades
+    let livePnL = { open: [], totals: {} };
+    try {
+      const pnlResult = await jgetAuth("/trade/live-pnl");
+      if (pnlResult && pnlResult.ok) {
+        livePnL = pnlResult;
+      }
+    } catch (err) {
+      console.warn("Failed to load live P&L:", err);
+    }
+
+    // Create a map for quick P&L lookup
+    const pnlMap = {};
+    (livePnL.open || []).forEach(trade => {
+      pnlMap[trade._id] = trade;
+    });
+
     trades.forEach((trade) => {
       const tr = document.createElement("tr");
+      const liveData = pnlMap[trade._id] || {};
+      const currentPrice = liveData.ltp || trade.entryPrice;
+      const pnlAbs = liveData.pnlAbs || 0;
+      const pnlPct = liveData.pnlPct || 0;
+      const isProfit = pnlAbs >= 0;
+      
+      const statusClass = trade.status === 'CLOSED' ? 'status-closed' : 'status-open';
+      const actionButton = trade.status === 'OPEN'
+        ? `<button class="app-btn small danger" onclick="closeTrade('${trade._id}')">Close</button>`
+        : '--';
+      
       tr.innerHTML = `
         <td>${trade.symbol}</td>
-        <td>${trade.quantity ?? "--"}</td>
+        <td>${trade.qty || trade.quantity || "--"}</td>
         <td>${formatCurrency(trade.entryPrice)}</td>
+        <td>${formatCurrency(currentPrice)}</td>
         <td>${formatCurrency(trade.targetPrice)}</td>
         <td>${formatCurrency(trade.stopPrice)}</td>
-        <td>${trade.status}</td>
+        <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">
+          ${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)
+        </td>
+        <td>${actionButton}</td>
       `;
+      tr.className = statusClass;
       tableBody.appendChild(tr);
     });
   }
@@ -943,6 +976,92 @@
   $("#btnRefreshTrades")?.addEventListener("click", loadTrades);
 
   // ----------------------------------------
+  // Trade closing functionality
+  // ----------------------------------------
+  window.closeTrade = async function(tradeId) {
+    if (!tradeId) return;
+    
+    if (!confirm("Are you sure you want to close this trade?")) {
+      return;
+    }
+    
+    try {
+      const result = await jpostAuth(`/trade/close/${tradeId}`);
+      if (result && result.ok) {
+        alert("Trade closed successfully!");
+        loadTrades(); // Refresh the trades table
+        loadDailyReport(); // Update the report
+      } else {
+        alert(result?.error || "Failed to close trade");
+      }
+    } catch (err) {
+      console.error("Error closing trade:", err);
+      alert("Error closing trade. Please try again.");
+    }
+  };
+
+  // ----------------------------------------
+  // Real-time updates for P&L
+  // ----------------------------------------
+  let pnlUpdateInterval = null;
+  
+  function startPnLUpdates() {
+    if (pnlUpdateInterval) {
+      clearInterval(pnlUpdateInterval);
+    }
+    
+    // Update P&L every 5 seconds for real-time display
+    pnlUpdateInterval = setInterval(async () => {
+      try {
+        const openTrades = document.querySelectorAll('.status-open');
+        if (openTrades.length === 0) return; // No open trades to update
+        
+        const pnlResult = await jgetAuth("/trade/live-pnl");
+        if (pnlResult && pnlResult.ok) {
+          updateOpenTradesPnL(pnlResult.open || []);
+        }
+      } catch (err) {
+        console.warn("Failed to update P&L:", err);
+      }
+    }, 5000);
+  }
+  
+  function updateOpenTradesPnL(openTrades) {
+    const tableBody = $("#tradesTableBody");
+    if (!tableBody || !openTrades.length) return;
+    
+    // Update each open trade row with current P&L
+    openTrades.forEach(trade => {
+      const rows = tableBody.querySelectorAll('tr');
+      for (let row of rows) {
+        const symbolCell = row.querySelector('td:first-child');
+        if (symbolCell && symbolCell.textContent === trade.symbol) {
+          const cells = row.querySelectorAll('td');
+          if (cells.length >= 7) {
+            // Update current price
+            cells[3].textContent = formatCurrency(trade.ltp || trade.entryPrice);
+            
+            // Update P&L
+            const pnlAbs = trade.pnlAbs || 0;
+            const pnlPct = trade.pnlPct || 0;
+            const pnlCell = cells[6];
+            pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+            pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
+          }
+          break;
+        }
+      }
+    });
+  }
+  
+  function stopPnLUpdates() {
+    if (pnlUpdateInterval) {
+      clearInterval(pnlUpdateInterval);
+      pnlUpdateInterval = null;
+    }
+  }
+
+  // ----------------------------------------
   // Initial load & polling
   // ----------------------------------------
   loadPlanStatus();
@@ -958,6 +1077,21 @@
     loadDailyReport();
     loadTrades();
   }, 30000);
+
+  // Start real-time P&L updates
+  startPnLUpdates();
+  
+  // Stop updates when leaving the page
+  window.addEventListener('beforeunload', stopPnLUpdates);
+
+  // Check exits for open trades every 10 seconds (for automatic target/stop closing)
+  setInterval(async () => {
+    try {
+      await jpostAuth("/trade/check-exit");
+    } catch (err) {
+      console.warn("Failed to check trade exits:", err);
+    }
+  }, 10000);
 
   (async () => {
     const payloadRaw = localStorage.getItem("qp_angel_pending_payload");

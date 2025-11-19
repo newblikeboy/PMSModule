@@ -599,6 +599,25 @@
   background: rgba(63, 95, 255, 0.05);
 }
 
+/* Trade status styling */
+.status-open {
+  background: rgba(18, 184, 134, 0.04);
+}
+
+.status-closed {
+  opacity: 0.7;
+}
+
+.pnl-positive {
+  color: var(--app-success);
+  font-weight: 600;
+}
+
+.pnl-negative {
+  color: var(--app-danger);
+  font-weight: 600;
+}
+
 .app-act-btn {
   background: var(--app-primary-soft);
   border: 1px solid var(--app-primary);
@@ -613,6 +632,16 @@
 .app-act-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.app-btn.danger {
+  background: rgba(255, 95, 95, 0.1);
+  border: 1px solid var(--app-danger);
+  color: var(--app-danger);
+}
+
+.app-btn.danger:hover {
+  background: rgba(255, 95, 95, 0.2);
 }
 
 .app-card--controls {

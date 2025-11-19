@@ -277,6 +277,30 @@
   background: rgba(63, 95, 255, 0.06);
 }
 
+/* Trade status styling for admin */
+.admin-user-cell {
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.status-open {
+  background: rgba(18, 184, 134, 0.04);
+}
+
+.status-closed {
+  opacity: 0.7;
+}
+
+.pnl-positive {
+  color: var(--admin-success);
+  font-weight: 600;
+}
+
+.pnl-negative {
+  color: var(--admin-danger);
+  font-weight: 600;
+}
+
 .admin-table-placeholder {
   text-align: center;
   padding: 22px;

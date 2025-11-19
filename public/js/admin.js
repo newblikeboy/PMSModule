@@ -187,27 +187,78 @@
 
     body.innerHTML = "";
     if (!resp || !resp.ok) {
-      body.innerHTML = `<tr><td colspan="7" class="admin-table-placeholder">No data / error</td></tr>`;
+      body.innerHTML = `<tr><td colspan="10" class="admin-table-placeholder">No data / error</td></tr>`;
       return;
     }
 
     const trades = resp.trades || [];
     if (!trades.length) {
-      body.innerHTML = `<tr><td colspan="7" class="admin-table-placeholder">No trades yet</td></tr>`;
+      body.innerHTML = `<tr><td colspan="10" class="admin-table-placeholder">No trades yet</td></tr>`;
       return;
     }
 
+    // Get users data for mapping user names
+    const usersResp = await jgetAuth("/admin/users");
+    const usersMap = {};
+    if (usersResp && usersResp.ok) {
+      (usersResp.users || []).forEach(user => {
+        usersMap[user._id] = user;
+      });
+    }
+
+    // Get live P&L data for open trades
+    let livePnL = { results: [] };
+    try {
+      const pnlResult = await jgetAuth("/trade/live-pnl");
+      if (pnlResult && pnlResult.ok) {
+        livePnL = pnlResult;
+      }
+    } catch (err) {
+      console.warn("Failed to load live P&L:", err);
+    }
+
+    // Create a map for quick P&L lookup by userId
+    const pnlMap = {};
+    (livePnL.results || []).forEach(userData => {
+      const userId = userData.userId;
+      (userData.open || []).forEach(trade => {
+        if (!pnlMap[userId]) pnlMap[userId] = {};
+        pnlMap[userId][trade._id] = trade;
+      });
+    });
+
     trades.forEach((trade) => {
+      const user = usersMap[trade.userId] || {};
+      const userName = user.name || user.email || "Unknown User";
+      const liveData = (pnlMap[trade.userId] && pnlMap[trade.userId][trade._id]) || {};
+      const currentPrice = liveData.ltp || trade.currentPrice || trade.entryPrice;
+      const pnlAbs = liveData.pnlAbs || trade.pnlAbs || 0;
+      const pnlPct = liveData.pnlPct || trade.pnlPct || 0;
+      const isProfit = pnlAbs >= 0;
+      
+      const statusClass = trade.status === 'CLOSED' ? 'status-closed' : 'status-open';
+      const actionButton = trade.status === 'OPEN'
+        ? `<button class="admin-mini-btn danger" onclick="closeTradeAdmin('${trade._id}')">Close</button>`
+        : '--';
+      
       const tr = document.createElement("tr");
       tr.innerHTML = `
+        <td><div class="admin-user-cell">${userName}</div></td>
         <td>${trade.symbol}</td>
-        <td>${trade.direction}</td>
-        <td>${trade.quantity}</td>
+        <td>${trade.quantity || trade.qty || "--"}</td>
         <td>${formatCurrency(trade.entryPrice)}</td>
-        <td>${formatCurrency(trade.currentPrice)}</td>
-        <td>${trade.status}</td>
-        <td>${trade.updatedAt ? new Date(trade.updatedAt).toLocaleTimeString() : "--"}</td>
+        <td>${formatCurrency(currentPrice)}</td>
+        <td>${formatCurrency(trade.targetPrice)}</td>
+        <td>${formatCurrency(trade.stopPrice)}</td>
+        <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">
+          ${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)
+        </td>
+        <td>
+          <span class="admin-pill ${trade.status === 'OPEN' ? 'auto-on' : 'plan-paid'}">${trade.status}</span>
+        </td>
+        <td>${actionButton}</td>
       `;
+      tr.className = statusClass;
       body.appendChild(tr);
     });
   }
@@ -647,6 +698,113 @@
   });
 
   // -------------------------------
+  // Trade closing functionality for admin
+  // -------------------------------
+  window.closeTradeAdmin = async function(tradeId) {
+    if (!tradeId) return;
+    
+    if (!confirm("Are you sure you want to close this trade?")) {
+      return;
+    }
+    
+    try {
+      const result = await jpostAuth(`/trade/close/${tradeId}`);
+      if (result && result.ok) {
+        alert("Trade closed successfully!");
+        loadTrades(); // Refresh the trades table
+        loadOverview(); // Update the overview stats
+      } else {
+        alert(result?.error || "Failed to close trade");
+      }
+    } catch (err) {
+      console.error("Error closing trade:", err);
+      alert("Error closing trade. Please try again.");
+    }
+  };
+
+  // -------------------------------
+  // Real-time updates for P&L in admin
+  // -------------------------------
+  let adminPnlUpdateInterval = null;
+  
+  function startAdminPnLUpdates() {
+    if (adminPnlUpdateInterval) {
+      clearInterval(adminPnlUpdateInterval);
+    }
+    
+    // Update P&L every 5 seconds for open trades
+    adminPnlUpdateInterval = setInterval(async () => {
+      try {
+        const openTrades = document.querySelectorAll('#adminTradesTbody .status-open');
+        if (openTrades.length === 0) return; // No open trades to update
+        
+        const pnlResult = await jgetAuth("/trade/live-pnl");
+        if (pnlResult && pnlResult.ok) {
+          updateAdminOpenTradesPnL(pnlResult.results || []);
+        }
+      } catch (err) {
+        console.warn("Failed to update admin P&L:", err);
+      }
+    }, 5000);
+  }
+  
+  function updateAdminOpenTradesPnL(usersPnLData) {
+    const tableBody = $("#adminTradesTbody");
+    if (!tableBody || !usersPnLData.length) return;
+    
+    // Create a map for quick lookup
+    const pnlMap = {};
+    usersPnLData.forEach(userData => {
+      const userId = userData.userId;
+      (userData.open || []).forEach(trade => {
+        if (!pnlMap[userId]) pnlMap[userId] = {};
+        pnlMap[userId][trade._id] = trade;
+      });
+    });
+    
+    // Update each open trade row with current P&L
+    const rows = tableBody.querySelectorAll('tr.status-open');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 8) {
+        const userNameCell = cells[0].textContent.trim();
+        const symbolCell = cells[1].textContent.trim();
+        
+        // Find matching user data
+        let foundTrade = null;
+        for (const [userId, trades] of Object.entries(pnlMap)) {
+          for (const [tradeId, tradeData] of Object.entries(trades)) {
+            if (tradeData.symbol === symbolCell) {
+              foundTrade = tradeData;
+              break;
+            }
+          }
+          if (foundTrade) break;
+        }
+        
+        if (foundTrade) {
+          // Update current price
+          cells[4].textContent = formatCurrency(foundTrade.ltp || foundTrade.entryPrice);
+          
+          // Update P&L
+          const pnlAbs = foundTrade.pnlAbs || 0;
+          const pnlPct = foundTrade.pnlPct || 0;
+          const pnlCell = cells[7];
+          pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+          pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
+        }
+      }
+    });
+  }
+  
+  function stopAdminPnLUpdates() {
+    if (adminPnlUpdateInterval) {
+      clearInterval(adminPnlUpdateInterval);
+      adminPnlUpdateInterval = null;
+    }
+  }
+
+  // -------------------------------
   // Initial load + polling
   // -------------------------------
   async function initialLoad() {
@@ -668,6 +826,21 @@
     renderEngineStatus();
     loadFyersStatus({ quiet: true });
   }, 30000);
+
+  // Start real-time P&L updates for admin
+  startAdminPnLUpdates();
+  
+  // Stop updates when leaving the page
+  window.addEventListener('beforeunload', stopAdminPnLUpdates);
+  
+  // Check exits for open trades every 10 seconds (for automatic target/stop closing)
+  setInterval(async () => {
+    try {
+      await jpostAuth("/trade/check-exit");
+    } catch (err) {
+      console.warn("Failed to check trade exits:", err);
+    }
+  }, 10000);
 
   // -------------------------------
   // Live data stream viewer (demo polling)

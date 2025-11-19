@@ -1,259 +1,257 @@
 // services/m2.service.js
 "use strict";
 
-const { fyersDataSocket } = require("fyers-api-v3");
-const fy = require("./fyersSdk"); 
-const { getSocketToken } = require("./fyersAuth");
+/**
+ * M2 Engine - RSI monitor (1m)
+ * - seeds minute series from fy.getHistory()
+ * - subscribes to live ticks from marketSocket
+ * - updates local minute series and recalculates RSI(14)
+ * - writes M2Signal when RSI in [40,50]
+ */
+
+const fy = require("./fyersSdk");
+const marketSocket = require("./marketSocket.service");
 const { calcRSI14FromCandles } = require("../utils/indicators");
 const M2Signal = require("../models/M2Signal");
 const M1Mover = require("../models/M1Mover");
+const { DateTime } = require("luxon");
 
 const CONFIG = {
   RSI_LOWER: 40,
   RSI_UPPER: 50,
+  MAX_MIN_CANDLES: 300,
   HISTORY_LOOKBACK_MINUTES: 240,
-  MAX_MIN_CANDLES: 200,
-  SOCKET_RECONNECT_MS: 5000
+  HISTORY_FETCH_DELAY_MS: 120,
+  RSI_DEBOUNCE_MIN_DIFF: 0.2, // don't write small rsi noise
 };
 
-// ---- IN-MEMORY STATE ----
-let socket = null;
-let movers = [];
-let minuteSeriesMap = new Map();
-let lastRSIValue = new Map();
+let minuteSeries = new Map(); // symbol -> [[ts,o,h,l,c,v], ...]
+let lastRSI = new Map();
+let moversList = [];
+let tickHandler = null;
 
-// Utilities
-const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+/* ---------- Utils ---------- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const bucket = (ts) => Math.floor(ts / 60000) * 60000;
 
-function minuteBucket(ts) {
-  return Math.floor(ts / 60000) * 60000;
+/* normalize history candle (our getHistory returns {ts,o,h,l,c,v}) */
+function normalizeHistory(historyCandles = []) {
+  return historyCandles
+    .map((c) => {
+      const ts = bucket(c.ts);
+      return [ts, Number(c.o), Number(c.h), Number(c.l), Number(c.c), Number(c.v || 0)];
+    })
+    .filter((r) => Number.isFinite(r[0]) && Number.isFinite(r[4]));
 }
 
 function updateMinuteSeries(symbol, price, ts) {
-  const bucket = minuteBucket(ts);
-  let series = minuteSeriesMap.get(symbol);
-  if (!series) {
-    series = [];
-    minuteSeriesMap.set(symbol, series);
+  if (!symbol || !Number.isFinite(Number(price))) return;
+  ts = bucket(ts);
+  let arr = minuteSeries.get(symbol);
+  if (!arr) {
+    arr = [];
+    minuteSeries.set(symbol, arr);
   }
-
-  let last = series[series.length - 1];
-
-  if (!last || last[0] !== bucket) {
-    last = [bucket, price, price, price, price, 1];
-    series.push(last);
-    if (series.length > CONFIG.MAX_MIN_CANDLES) {
-      series.splice(0, series.length - CONFIG.MAX_MIN_CANDLES);
-    }
+  let last = arr[arr.length - 1];
+  if (!last || last[0] !== ts) {
+    arr.push([ts, price, price, price, price, 1]);
+    if (arr.length > CONFIG.MAX_MIN_CANDLES) arr.splice(0, arr.length - CONFIG.MAX_MIN_CANDLES);
   } else {
     last[2] = Math.max(last[2], price);
     last[3] = Math.min(last[3], price);
     last[4] = price;
-    last[5] += 1;
+    last[5] = (last[5] || 0) + 1;
   }
 }
 
-async function fetchHistorySeries(symbol) {
-  const now = Date.now();
-  const fromDate = new Date(now - CONFIG.HISTORY_LOOKBACK_MINUTES * 60000)
-    .toISOString().slice(0, 10);
-  const toDate = new Date(now).toISOString().slice(0, 10);
-
-  const resp = await fy.getHistory({
-    symbol,
-    resolution: "1",
-    range_from: fromDate,
-    range_to: toDate
-  });
-
-  const raw = resp?.candles || [];
-  const arr = raw.map(c => [c[0] * 1000, c[1], c[2], c[3], c[4], c[5]]);
-
-  const out = [];
-  for (const x of arr) {
-    const ts = minuteBucket(x[0]);
-    out.push([ts, x[1], x[2], x[3], x[4], x[5]]);
-  }
-  return out;
-}
-
-async function initHistoryForMovers() {
-  for (const m of movers) {
-    try {
-      const hist = await fetchHistorySeries(m.symbol);
-      minuteSeriesMap.set(m.symbol, hist);
-    } catch (err) {
-      console.log("[M2] History fetch failed for", m.symbol, err.message);
-    }
-    await sleep(150);
-  }
-}
-
-async function computeRSIAndStore(symbol, price) {
-  const candles = minuteSeriesMap.get(symbol);
-  if (!candles || candles.length < 20) return;
-
-  const rsi = await calcRSI14FromCandles(candles);
-  if (!Number.isFinite(rsi)) return;
-
-  const last = lastRSIValue.get(symbol);
-  if (last && Math.abs(last - rsi) < 0.05) return;
-
-  lastRSIValue.set(symbol, rsi);
-
-  const inZone = rsi >= CONFIG.RSI_LOWER && rsi <= CONFIG.RSI_UPPER;
-
-  if (inZone) {
-    await M2Signal.findOneAndUpdate(
-      { symbol },
-      {
-        symbol,
-        rsi: Number(rsi.toFixed(2)),
-        timeframe: "1m",
-        inEntryZone: true,
-        updatedAt: new Date()
-      },
-      { upsert: true }
-    );
-
-    console.log(`[M2 SIGNAL] ${symbol} → RSI ${rsi.toFixed(2)} (40–50 zone)`);
-  }
-}
-
-// ---- SOCKET HANDLING ----
-async function connectSocket() {
-  let token;
+async function seedHistoryForSymbol(symbol) {
   try {
-    token = await getSocketToken();
+    // Use today's date (date_format: "1")
+    const today = DateTime.now().toISODate();
+    const data = await fy.getHistory({
+      symbol,
+      resolution: "1",
+      date_format: "1",
+      range_from: today,
+      range_to: today,
+      cont_flag: "1",
+    });
+
+    // our fy.getHistory returns normalized array of {ts,o,h,l,c,v}
+    const normalized = Array.isArray(data) ? data : [];
+    const arr = normalizeHistory(normalized);
+    // set into series (should be ascending by ts)
+    minuteSeries.set(symbol, arr);
+    return arr;
   } catch (err) {
-    console.error('[M2] Socket auth failed:', err.message || err);
-    // Retry connecting after a delay
-    setTimeout(connectSocket, CONFIG.SOCKET_RECONNECT_MS);
-    return;
+    console.warn("[M2] seedHistory failed for", symbol, err?.message || err);
+    return [];
   }
+}
 
-  socket = new fyersDataSocket(token);
+async function initHistoryForMovers(movers) {
+  for (const m of movers) {
+    await seedHistoryForSymbol(m.symbol);
+    // small delay to avoid API burst
+    await sleep(CONFIG.HISTORY_FETCH_DELAY_MS);
+  }
+}
 
-  socket.on("connect", () => {
-    console.log("[M2] WebSocket connected");
-    const symbols = movers.map(m => m.symbol);
-    socket.subscribe(symbols);
-    if (socket.LiteMode) socket.mode(socket.LiteMode);
-  });
+async function computeAndMaybeStoreRSI(symbol) {
+  const arr = minuteSeries.get(symbol) || [];
+  if (!arr || arr.length < 20) return;
+  try {
+    const rsi = await calcRSI14FromCandles(arr);
+    if (!Number.isFinite(rsi)) return;
 
-  socket.on("message", async (msg) => {
-    const data = Array.isArray(msg) ? msg : msg.d || msg.data || [msg];
-    for (const t of data) {
-      const sym = t.symbol || t.s;
-      let price = t.ltp || t.lp || t.c || t.v?.lp;
-      if (!sym || !Number.isFinite(Number(price))) continue;
+    const prev = lastRSI.get(symbol);
+    if (prev && Math.abs(prev - rsi) < CONFIG.RSI_DEBOUNCE_MIN_DIFF) return;
+    lastRSI.set(symbol, rsi);
 
-      price = Number(price);
-      const ts = (t.timestamp || Date.now()) * 1000;
-
-      updateMinuteSeries(sym, price, ts);
-      await computeRSIAndStore(sym, price);
+    const inZone = rsi >= CONFIG.RSI_LOWER && rsi <= CONFIG.RSI_UPPER;
+    if (inZone) {
+      await M2Signal.findOneAndUpdate(
+        { symbol },
+        {
+          symbol,
+          rsi: Number(rsi.toFixed(2)),
+          timeframe: "1m",
+          inEntryZone: true,
+          updatedAt: new Date(),
+        },
+        { upsert: true }
+      );
+      console.log(`[M2] SIGNAL ${symbol} — RSI ${rsi.toFixed(2)} (40-50)`);
+    } else {
+      // Optionally mark not in zone (keep doc but set flag false)
+      await M2Signal.findOneAndUpdate(
+        { symbol },
+        {
+          symbol,
+          rsi: Number(rsi.toFixed(2)),
+          timeframe: "1m",
+          inEntryZone: false,
+          updatedAt: new Date(),
+        },
+        { upsert: true }
+      );
     }
-  });
-
-  socket.on("close", () => {
-    console.log("[M2] Socket closed. Reconnecting...");
-    setTimeout(connectSocket, CONFIG.SOCKET_RECONNECT_MS);
-  });
-
-  socket.on("error", (e) => {
-    console.log("[M2] Socket error:", e.message);
-  });
-
-  socket.connect();
+  } catch (err) {
+    console.warn("[M2] computeRSI error", symbol, err?.message || err);
+  }
 }
 
-// ---- MAIN ENTRY ----
+/* ---------- MarketSocket tick handler ---------- */
+function onTick(tick) {
+  const sym = tick.symbol;
+  const price = Number(tick.ltp);
+  const ts = Number(tick.ts);
+  if (!sym || !Number.isFinite(price)) return;
+  updateMinuteSeries(sym, price, ts);
+  computeAndMaybeStoreRSI(sym).catch((e) => console.warn("[M2] RSI compute err", e?.message || e));
+}
+
+/* ---------- Start / Stop / Public API ---------- */
 async function startM2Engine() {
-  console.log("========== M2 ENGINE STARTING ==========");
+  console.log("[M2] starting engine...");
 
-  movers = await M1Mover.find().lean();
+  // load today's movers from M1Mover
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  moversList = await M1Mover.find({ capturedAt: { $gte: todayStart } }).lean();
 
-  if (!movers.length) {
-    console.log("[M2] No movers found in DB");
-    return { ok: false, message: "No movers in database" };
+  if (!Array.isArray(moversList) || moversList.length === 0) {
+    console.log("[M2] no movers found for today");
+    return { ok: false, message: "no movers" };
   }
 
-  console.log(`[M2] Loaded ${movers.length} movers from DB`);
+  console.log(`[M2] loaded ${moversList.length} movers`);
 
-  await initHistoryForMovers();
+  // seed history for movers
+  await initHistoryForMovers(moversList);
 
-  await connectSocket();
+  // subscribe via marketSocket
+  const symbols = moversList.map((m) => m.symbol).filter(Boolean);
+  await marketSocket.subscribe(symbols, "m2");
 
-  return {
-    ok: true,
-    message: "M2 Engine running live RSI monitoring",
-    moverCount: movers.length
-  };
+  // attach tick handler
+  tickHandler = onTick;
+  marketSocket.on("tick", tickHandler);
+
+  return { ok: true, moverCount: symbols.length };
 }
 
-// ---- SIGNAL RETRIEVAL FOR UI ----
+async function stopM2Engine() {
+  try {
+    if (tickHandler) {
+      marketSocket.off("tick", tickHandler);
+      tickHandler = null;
+    }
+    const symbols = moversList.map((m) => m.symbol).filter(Boolean);
+    if (symbols.length) await marketSocket.unsubscribe(symbols, "m2");
+    minuteSeries.clear();
+    lastRSI.clear();
+    moversList = [];
+    console.log("[M2] stopped");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+/* ---------- API to get signals enriched for UI ---------- */
 async function getLatestSignalsFromDB() {
   try {
-    // Get today's M1 movers to calculate current LTP and provide entry/stop targets
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const movers = await M1Mover.find({ capturedAt: { $gte: today } }).lean();
-    
-    // Get current signals from M2
-    const signals = await M2Signal.find({ inEntryZone: true }).lean();
-    
-    // Build enriched signals with current price data
-    const enrichedSignals = [];
-    const symbols = signals.map(s => s.symbol);
-    
-    if (symbols.length > 0) {
-      try {
-        const quotes = await fy.getQuotes(symbols);
-        const quoteMap = new Map();
-        quotes.forEach(q => quoteMap.set(q.symbol, q));
-        
-        for (const signal of signals) {
-          const quote = quoteMap.get(signal.symbol);
-          if (quote && quote.ltp) {
-            const entryPrice = Number(quote.ltp);
-            const targetPrice = entryPrice * 1.015; // +1.5%
-            const stopPrice = entryPrice * 0.9925; // -0.75%
-            
-            enrichedSignals.push({
-              symbol: signal.symbol,
-              rsi: signal.rsi,
-              timeframe: signal.timeframe,
-              inEntryZone: signal.inEntryZone,
-              ltp: entryPrice,
-              target: targetPrice,
-              stop: stopPrice,
-              updatedAt: signal.updatedAt,
-              reason: `RSI ${signal.rsi} in entry zone (40-50)`
-            });
-          }
-        }
-      } catch (err) {
-        console.error("[M2] Error fetching quotes for signals:", err.message);
+    const signals = await M2Signal.find().lean();
+    if (!signals || !signals.length) return { ok: true, data: [], count: 0 };
+
+    // fetch LTPs in batch using marketSocket cache first then fallback to fy.getQuotes
+    const enriched = [];
+    const needRest = [];
+    for (const s of signals) {
+      const last = marketSocket.getLastTick(s.symbol);
+      if (last && Number.isFinite(Number(last.ltp))) {
+        enriched.push({
+          symbol: s.symbol,
+          rsi: s.rsi,
+          inEntryZone: s.inEntryZone,
+          ltp: last.ltp,
+          updatedAt: s.updatedAt,
+        });
+      } else {
+        needRest.push(s.symbol);
       }
     }
-    
-    return {
-      ok: true,
-      data: enrichedSignals,
-      count: enrichedSignals.length
-    };
+
+    if (needRest.length) {
+      try {
+        const quotes = await fy.getQuotes(needRest);
+        const qmap = new Map();
+        for (const q of quotes) qmap.set(q.symbol, q);
+        for (const s of signals.filter(x => needRest.includes(x.symbol))) {
+          const q = qmap.get(s.symbol);
+          enriched.push({
+            symbol: s.symbol,
+            rsi: s.rsi,
+            inEntryZone: s.inEntryZone,
+            ltp: q?.ltp ?? null,
+            updatedAt: s.updatedAt,
+          });
+        }
+      } catch (err) {
+        console.warn("[M2] getQuotes fallback failed", err?.message || err);
+      }
+    }
+
+    return { ok: true, data: enriched, count: enriched.length };
   } catch (err) {
-    console.error("[M2] Error in getLatestSignalsFromDB:", err.message);
-    return {
-      ok: false,
-      error: err.message,
-      data: []
-    };
+    console.error("[M2] getLatestSignalsFromDB error", err?.message || err);
+    return { ok: false, error: err?.message || err, data: [] };
   }
 }
 
 module.exports = {
   startM2Engine,
-  getLatestSignalsFromDB
+  stopM2Engine,
+  getLatestSignalsFromDB,
 };

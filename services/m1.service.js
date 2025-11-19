@@ -12,12 +12,13 @@ const M1Mover = require("../models/M1Mover");
 const CONFIG = Object.freeze({
   QUOTE_BATCH_SIZE: 40,
   QUOTE_BATCH_DELAY_MS: 800,
-  ALERT_THRESHOLD_PCT: 5,
+  ALERT_THRESHOLD_PCT: 5,   // +5% movers only
 });
 
 // ---------------- UTILS ----------------
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const toNumber = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+const IST = "Asia/Kolkata";
 
 function percentChange(prevClose, ltp) {
   return ((ltp - prevClose) / prevClose) * 100;
@@ -39,9 +40,7 @@ async function loadUniverse() {
     const raw = await fs.readFile(p, "utf8");
     const arr = JSON.parse(raw || "[]");
 
-    const clean = arr
-      .map((s) => fy.toFyersSymbol(s))
-      .filter(Boolean);
+    const clean = arr.map((s) => fy.toFyersSymbol(s)).filter(Boolean);
 
     cachedUniverse = clean;
     cacheTimestamp = now;
@@ -56,8 +55,11 @@ async function loadUniverse() {
 function extractPrevClose(quote) {
   const v = quote.raw?.v || quote.raw || {};
   const candidates = [
-    v.prev_close_price, v.prevPrice, v.pc,
-    quote.prevClose, quote.prev_close_price
+    v.prev_close_price,
+    v.prevPrice,
+    v.pc,
+    quote.prevClose,
+    quote.prev_close_price,
   ];
 
   for (const c of candidates) {
@@ -69,9 +71,7 @@ function extractPrevClose(quote) {
 
 function extractLtp(quote) {
   const v = quote.raw?.v || quote.raw || {};
-  const candidates = [
-    v.lp, v.ltp, v.price, quote.ltp, quote.c
-  ];
+  const candidates = [v.lp, v.ltp, v.price, quote.ltp, quote.c];
   for (const c of candidates) {
     const n = toNumber(c);
     if (n) return n;
@@ -81,12 +81,11 @@ function extractLtp(quote) {
 
 function normalizeQuote(quote) {
   if (!quote) return null;
-
   return {
     symbol: quote.symbol,
     raw: quote,
     prevClose: extractPrevClose(quote),
-    ltp: extractLtp(quote)
+    ltp: extractLtp(quote),
   };
 }
 
@@ -144,7 +143,7 @@ async function storeQuotesInDatabase(snapshots) {
             changeAmt: Number(changeAmt.toFixed(2)),
             fetchedAt: new Date(),
             source: "m1_phase1",
-            isActive: true
+            isActive: true,
           },
         },
         upsert: true,
@@ -165,22 +164,36 @@ async function storeQuotesInDatabase(snapshots) {
   return snapshots.length;
 }
 
-// ---------------- Save Movers to M1Mover Table ----------------
+// ---------------- Save Movers (CLEAN DAILY) ----------------
 async function persistMovers(movers = []) {
   if (!movers.length) return;
 
+  const today = DateTime.now().setZone(IST).toISODate();
+
+  // DELETE ALL TODAY’S MOVERS FIRST
+  await M1Mover.deleteMany({ moverDate: today });
+  console.log(`[M1] Cleared existing movers for ${today}`);
+
+  // INSERT FRESH LIST FOR TODAY
   for (const m of movers) {
     await M1Mover.findOneAndUpdate(
-      { symbol: m.symbol },
-      { ...m, capturedAt: new Date() },
+      { symbol: m.symbol, moverDate: today },
+      {
+        symbol: m.symbol,
+        prevClose: m.prevClose,
+        ltp: m.ltp,
+        changePct: m.changePct,
+        moverDate: today,
+        capturedAt: new Date(),
+      },
       { upsert: true }
     );
   }
 
-  console.log(`[M1] Saved ${movers.length} movers.`);
+  console.log(`[M1] Saved ${movers.length} movers for ${today}.`);
 }
 
-// ---------------- MAIN ENGINE (PHASE–1 ONLY) ----------------
+// ---------------- MAIN ENGINE ----------------
 async function startEngine() {
   console.log("[M1] Starting Phase-1 Scan Engine…");
 
@@ -194,11 +207,11 @@ async function startEngine() {
 
   console.log(`[M1] Got ${snapshots.length} quote snapshots`);
 
-  // Compute movers
+  // Compute ONLY +5% movers
   const movers = [];
   for (const s of snapshots) {
     const changePct = percentChange(s.prevClose, s.ltp);
-    if (Math.abs(changePct) >= CONFIG.ALERT_THRESHOLD_PCT) {
+    if (changePct >= CONFIG.ALERT_THRESHOLD_PCT) {
       movers.push({
         symbol: s.symbol,
         prevClose: s.prevClose,
@@ -208,7 +221,7 @@ async function startEngine() {
     }
   }
 
-  movers.sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+  movers.sort((a, b) => b.changePct - a.changePct);
 
   // Save quotes + movers
   await storeQuotesInDatabase(snapshots);
@@ -221,5 +234,5 @@ async function startEngine() {
 module.exports = {
   startEngine,
   loadUniverse,
-  fetchQuoteSnapshots
+  fetchQuoteSnapshots,
 };
