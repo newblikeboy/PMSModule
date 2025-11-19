@@ -122,7 +122,16 @@ async function computeRSIAndStore(symbol, price) {
 
 // ---- SOCKET HANDLING ----
 async function connectSocket() {
-  const token = await getSocketToken();
+  let token;
+  try {
+    token = await getSocketToken();
+  } catch (err) {
+    console.error('[M2] Socket auth failed:', err.message || err);
+    // Retry connecting after a delay
+    setTimeout(connectSocket, CONFIG.SOCKET_RECONNECT_MS);
+    return;
+  }
+
   socket = new fyersDataSocket(token);
 
   socket.on("connect", () => {

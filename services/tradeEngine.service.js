@@ -147,7 +147,11 @@ async function tryEnterTrade(user) {
   if (!sig) return { ok: true, msg: "no active entry signal" };
 
   // 6) Fetch LTP
-  const ltp = await fetchLTP(sig.symbol);
+  let ltp = await fetchLTP(sig.symbol);
+
+  // 6) Fetch LTP
+  // Do not fallback to M1Mover; require live quote for both paper and live
+  // entries. This avoids using potentially stale local prices.
   if (!ltp) return { ok: false, error: "LTP not available" };
 
   // 7) Calculate quantity
@@ -248,8 +252,10 @@ async function autoEnterOnSignal(userId) {
     }
   }
 
-  // Bulk mode
-  const users = await User.find({ tradingEngineEnabled: true })
+  // Bulk mode: include all users for PAPER trades. Live trades still require
+  // per-user `tradingEngineEnabled` flag (handled in `decideTradeMode`).
+  // We limit the number of users processed per run to avoid overload.
+  const users = await User.find({})
     .limit(CFG.BULK_MAX_USERS)
     .lean();
 
