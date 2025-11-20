@@ -15,4 +15,9 @@ exports.movers = async (req, res, next) => {
   catch (err) { next(err); }
 };
 
-exports.status = (req, res) => res.json(service.getStatus());
+exports.status = (req, res) => {
+  res.json({
+    ok: true,
+    message: "M1 Engine operational. Use /m1/movers to get today's movers."
+  });
+};

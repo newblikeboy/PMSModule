@@ -3,7 +3,7 @@ const m2Service = require("../services/m2.service");
 
 exports.runScan = async (req, res, next) => {
   try {
-    const result = await m2Service.scanRSIEntryZone();
+    const result = await m2Service.startM2Engine();
     res.json(result);
   } catch (err) {
     next(err);

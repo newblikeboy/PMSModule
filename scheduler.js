@@ -97,6 +97,10 @@ async function startM1Engine() {
         "[SCHED] M1 Engine started, movers:",
         res.movers?.length || 0
       );
+      // Trigger M2 immediately if movers are available
+      if (res.movers && res.movers.length > 0) {
+        await startM2Engine(startTradeEngine);
+      }
     }
   } catch (err) {
     console.error("[SCHED] M1 failed:", err.message);

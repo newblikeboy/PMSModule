@@ -97,7 +97,7 @@ async function initHistoryForMovers(movers) {
   }
 }
 
-async function computeAndMaybeStoreRSI(symbol) {
+async function computeAndMaybeStoreRSI(symbol, onSignal) {
   const arr = minuteSeries.get(symbol) || [];
   if (!arr || arr.length < 20) return;
   try {
@@ -122,6 +122,7 @@ async function computeAndMaybeStoreRSI(symbol) {
         { upsert: true }
       );
       console.log(`[M2] SIGNAL ${symbol} — RSI ${rsi.toFixed(2)} (40-50)`);
+      if (onSignal) onSignal();
     } else {
       // Optionally mark not in zone (keep doc but set flag false)
       await M2Signal.findOneAndUpdate(
@@ -142,17 +143,17 @@ async function computeAndMaybeStoreRSI(symbol) {
 }
 
 /* ---------- MarketSocket tick handler ---------- */
-function onTick(tick) {
+function onTick(tick, onSignal) {
   const sym = tick.symbol;
   const price = Number(tick.ltp);
   const ts = Number(tick.ts);
   if (!sym || !Number.isFinite(price)) return;
   updateMinuteSeries(sym, price, ts);
-  computeAndMaybeStoreRSI(sym).catch((e) => console.warn("[M2] RSI compute err", e?.message || e));
+  computeAndMaybeStoreRSI(sym, onSignal).catch((e) => console.warn("[M2] RSI compute err", e?.message || e));
 }
 
 /* ---------- Start / Stop / Public API ---------- */
-async function startM2Engine() {
+async function startM2Engine(onSignal) {
   console.log("[M2] starting engine...");
 
   // load today's movers from M1Mover
@@ -170,12 +171,18 @@ async function startM2Engine() {
   // seed history for movers
   await initHistoryForMovers(moversList);
 
+  // check for existing signals and trigger if any
+  const existingSignals = await M2Signal.find({ inEntryZone: true, updatedAt: { $gte: todayStart } }).lean();
+  if (existingSignals.length > 0 && onSignal) {
+    onSignal();
+  }
+
   // subscribe via marketSocket
   const symbols = moversList.map((m) => m.symbol).filter(Boolean);
   await marketSocket.subscribe(symbols, "m2");
 
   // attach tick handler
-  tickHandler = onTick;
+  tickHandler = (tick) => onTick(tick, onSignal);
   marketSocket.on("tick", tickHandler);
 
   return { ok: true, moverCount: symbols.length };
