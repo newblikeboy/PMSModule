@@ -134,7 +134,9 @@ async function refreshAccessToken() {
     const now = Date.now();
 
     state.access_token = data.access_token;
-    state.refresh_token = data.refresh_token;
+    if (data.refresh_token) {
+      state.refresh_token = data.refresh_token;
+    }
     state.access_created_at = now;
     state.access_expires_in = data.expires_in || 3600;
     state.last_auto_refresh_at = now;
