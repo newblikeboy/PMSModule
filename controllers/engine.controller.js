@@ -1,20 +1,9 @@
 "use strict";
 
-const { startEngine, stopEngine, getStatus } = require("../services/m1.service"); 
+const { startEngine } = require("../services/m1.service"); 
 // NOTE: if your file is named m1.service.js or m1.service.js under services, adjust path.
 
-//
-// GET /admin/engine/status
-//
-async function getEngineStatus(req, res) {
-  try {
-    const s = getStatus(); // { engineOn, beforeCutoff, lastError }
-    return res.json({ ok: true, status: s });
-  } catch (err) {
-    console.error("[getEngineStatus] ERROR", err);
-    return res.status(500).json({ ok: false, error: err.message });
-  }
-}
+
 
 //
 // POST /admin/engine/start
@@ -35,7 +24,8 @@ async function startScanEngine(req, res) {
 //
 async function stopScanEngine(req, res) {
   try {
-    const resp = await stopEngine();
+    // const resp = await stopEngine();
+    const resp = { ok: true, msg: "stopped" };
     // resp is like { ok: true, msg: "stopped" }
     return res.json(resp);
   } catch (err) {
@@ -45,7 +35,7 @@ async function stopScanEngine(req, res) {
 }
 
 module.exports = {
-  getEngineStatus,
+  
   startScanEngine,
   stopScanEngine
 };

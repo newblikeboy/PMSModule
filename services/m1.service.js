@@ -1,4 +1,4 @@
-// services/m1.service.js - CLEAN PHASE-1 ENGINE ONLY
+// services/m1.service.js – PRODUCTION GRADE M1 ENGINE
 "use strict";
 
 const fs = require("fs").promises;
@@ -12,104 +12,116 @@ const M1Mover = require("../models/M1Mover");
 // ---------------- CONFIG ----------------
 const CONFIG = Object.freeze({
   QUOTE_BATCH_SIZE: 40,
-  QUOTE_BATCH_DELAY_MS: 800,
-  ALERT_THRESHOLD_PCT: 5,   // +5% movers only
+  QUOTE_BATCH_DELAY_MS: 700,
+  ALERT_THRESHOLD_PCT: 5,
+  UNIVERSE_CACHE_MS: 5 * 60 * 1000,
 });
+
+// ---------------- INTERNAL GLOBALS ----------------
+let universeCache = null;
+let universeCacheTS = 0;
+let m1Running = false;  // HARD LOCK
 
 // ---------------- UTILS ----------------
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-const toNumber = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
 const IST = "Asia/Kolkata";
 
-function percentChange(prevClose, ltp) {
-  return ((ltp - prevClose) / prevClose) * 100;
+function safeNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
-// ---------------- Load Universe File ----------------
-let cachedUniverse = null;
-let cacheTimestamp = 0;
-const UNIVERSE_CACHE_MS = 5 * 60 * 1000;
+function pctChange(prev, ltp) {
+  if (!prev || !ltp) return null;
+  return ((ltp - prev) / prev) * 100;
+}
 
+// ---------------- Load Universe (cached 5 mins) ----------------
 async function loadUniverse() {
   const now = Date.now();
-  if (cachedUniverse && now - cacheTimestamp < UNIVERSE_CACHE_MS) {
-    return cachedUniverse;
-  }
+  if (universeCache && now - universeCacheTS < CONFIG.UNIVERSE_CACHE_MS)
+    return universeCache;
 
   try {
-    const p = path.join(__dirname, "../nse_universe.json");
-    const raw = await fs.readFile(p, "utf8");
+    const filePath = path.join(__dirname, "../nse_universe.json");
+    const raw = await fs.readFile(filePath, "utf8");
     const arr = JSON.parse(raw || "[]");
 
-    const clean = arr.map((s) => fy.toFyersSymbol(s)).filter(Boolean);
+    universeCache = arr
+      .map((s) => fy.toFyersSymbol(s))
+      .filter(Boolean);
+    universeCacheTS = now;
 
-    cachedUniverse = clean;
-    cacheTimestamp = now;
-    return clean;
+    console.log(`[M1] Universe loaded: ${universeCache.length}`);
+    return universeCache;
   } catch (err) {
-    console.error("[M1] loadUniverse error:", err.message);
+    console.error("[M1] Error reading universe:", err.message);
     return [];
   }
 }
 
 // ---------------- Extractors ----------------
-function extractPrevClose(quote) {
-  const v = quote.raw?.v || quote.raw || {};
+function extractPrevClose(q) {
+  const v = q.raw?.v || q.raw || {};
+
   const candidates = [
-    v.prev_close_price,
-    v.prevPrice,
-    v.pc,
-    quote.prevClose,
-    quote.prev_close_price,
+    v.prev_close_price, v.prevPrice, v.pc,
+    q.prevClose, q.prev_close_price
   ];
 
   for (const c of candidates) {
-    const n = toNumber(c);
+    const n = safeNum(c);
     if (n) return n;
   }
   return null;
 }
 
-function extractLtp(quote) {
-  const v = quote.raw?.v || quote.raw || {};
-  const candidates = [v.lp, v.ltp, v.price, quote.ltp, quote.c];
+function extractLTP(q) {
+  const v = q.raw?.v || q.raw || {};
+  const candidates = [v.lp, v.ltp, v.price, q.ltp, q.c];
+
   for (const c of candidates) {
-    const n = toNumber(c);
+    const n = safeNum(c);
     if (n) return n;
   }
   return null;
 }
 
-function normalizeQuote(quote) {
-  if (!quote) return null;
+function normalizeQuote(q) {
+  if (!q) return null;
+  const prevClose = extractPrevClose(q);
+  const ltp = extractLTP(q);
+
+  if (!prevClose || !ltp) return null;
+
   return {
-    symbol: quote.symbol,
-    raw: quote,
-    prevClose: extractPrevClose(quote),
-    ltp: extractLtp(quote),
+    symbol: q.symbol,
+    raw: q,
+    prevClose,
+    ltp,
   };
 }
 
-// ---------------- Batch Quotes Fetching ----------------
+// ---------------- Fetch Quotes in Batches ----------------
 async function fetchQuoteSnapshots(symbols) {
   if (!symbols.length) return [];
 
-  const snapshots = [];
+  const out = [];
 
   for (let i = 0; i < symbols.length; i += CONFIG.QUOTE_BATCH_SIZE) {
     const batch = symbols.slice(i, i + CONFIG.QUOTE_BATCH_SIZE);
 
-    let quotes = [];
+    let result = [];
     try {
-      quotes = await fy.getQuotes(batch);
+      result = await fy.getQuotes(batch);
     } catch (err) {
-      console.error("[M1] getQuotes error:", err.message);
+      console.error("[M1] getQuotes API error:", err.message);
       continue;
     }
 
-    for (const q of quotes) {
+    for (const q of result) {
       const snap = normalizeQuote(q);
-      if (snap && snap.prevClose && snap.ltp) snapshots.push(snap);
+      if (snap) out.push(snap);
     }
 
     if (i + CONFIG.QUOTE_BATCH_SIZE < symbols.length) {
@@ -117,137 +129,124 @@ async function fetchQuoteSnapshots(symbols) {
     }
   }
 
-  return snapshots;
+  return out;
 }
 
-// ---------------- Save Quotes to LiveQuote Table ----------------
-async function storeQuotesInDatabase(snapshots) {
-  if (!Array.isArray(snapshots) || snapshots.length === 0) return 0;
+// ---------------- DB Writes ----------------
+async function storeQuotes(snapshots) {
+  if (!snapshots.length) return;
 
-  const bulkOps = [];
+  const bulk = [];
 
-  for (const snap of snapshots) {
-    const changeAmt = snap.ltp - snap.prevClose;
-    const changePct = percentChange(snap.prevClose, snap.ltp);
-    const name = snap.symbol.replace("NSE:", "").replace("-EQ", "");
+  for (const s of snapshots) {
+    const changePct = pctChange(s.prevClose, s.ltp);
+    const changeAmt = s.ltp - s.prevClose;
+    const cleanName = s.symbol.replace("NSE:", "").replace("-EQ", "");
 
-    bulkOps.push({
+    bulk.push({
       updateOne: {
-        filter: { symbol: snap.symbol },
+        filter: { symbol: s.symbol },
         update: {
           $set: {
-            symbol: snap.symbol,
-            name,
-            ltp: snap.ltp,
-            prevClose: snap.prevClose,
+            symbol: s.symbol,
+            name: cleanName,
+            ltp: s.ltp,
+            prevClose: s.prevClose,
             changePct: Number(changePct.toFixed(2)),
             changeAmt: Number(changeAmt.toFixed(2)),
             fetchedAt: new Date(),
-            source: "m1_phase1",
+            source: "m1",
             isActive: true,
-          },
+          }
         },
         upsert: true,
-      },
+      }
     });
 
-    if (bulkOps.length >= 500) {
-      await LiveQuote.bulkWrite(bulkOps, { ordered: false, maxTimeMS: 60000 });
-      bulkOps.length = 0;
+    if (bulk.length >= 500) {
+      await LiveQuote.bulkWrite(bulk, { ordered: false });
+      bulk.length = 0;
     }
   }
 
-  if (bulkOps.length > 0) {
-    await LiveQuote.bulkWrite(bulkOps, { ordered: false, maxTimeMS: 60000 });
+  if (bulk.length) {
+    await LiveQuote.bulkWrite(bulk, { ordered: false });
   }
 
-  console.log(`[M1] Stored ${snapshots.length} quotes.`);
-  return snapshots.length;
+  console.log(`[M1] Stored ${snapshots.length} LiveQuote rows.`);
 }
 
-// ---------------- Save Movers (CLEAN DAILY) ----------------
-async function persistMovers(movers = []) {
-  if (!movers.length) return;
-
+async function saveMovers(movers) {
   const today = DateTime.now().setZone(IST).toISODate();
 
-  // DELETE ALL TODAY’S MOVERS FIRST
-  await M1Mover.deleteMany({ moverDate: today });
-  console.log(`[M1] Cleared existing movers for ${today}`);
+  console.log(`[M1] Saving movers for ${today}...`);
 
-  // INSERT FRESH LIST FOR TODAY
+  // Safe method: replace in single transaction-like behavior
+  await M1Mover.deleteMany({ moverDate: today });
+
   for (const m of movers) {
-    await M1Mover.findOneAndUpdate(
+    await M1Mover.updateOne(
       { symbol: m.symbol, moverDate: today },
       {
-        symbol: m.symbol,
-        prevClose: m.prevClose,
-        ltp: m.ltp,
-        changePct: m.changePct,
-        moverDate: today,
-        capturedAt: new Date(),
+        $set: {
+          symbol: m.symbol,
+          prevClose: m.prevClose,
+          ltp: m.ltp,
+          changePct: Number(m.changePct.toFixed(2)),
+          moverDate: today,
+          capturedAt: new Date(),
+        }
       },
       { upsert: true }
     );
   }
 
-  console.log(`[M1] Saved ${movers.length} movers for ${today}.`);
+  console.log(`[M1] Movers saved (${movers.length})`);
 }
 
 // ---------------- MAIN ENGINE ----------------
 async function startEngine() {
-  console.log("[M1] Starting Phase-1 Scan Engine…");
+  if (m1Running) {
+    console.log("[M1] Already running → skipping");
+    return { ok: false, retry: false, error: "M1 locked" };
+  }
 
-  // Ensure DB connection
-  if (mongoose.connection.readyState === 0) {
-    try {
-      console.log("[M1] Connecting to MongoDB...");
-      await mongoose.connect(process.env.MONGO_URI, {
-        serverSelectionTimeoutMS: 30000,
-        socketTimeoutMS: 45000,
-        maxPoolSize: 10,
-        retryWrites: true,
-        w: "majority"
-      });
-      console.log("[M1] MongoDB connected ✅");
-    } catch (err) {
-      console.error("[M1] DB connection failed:", err.message);
-      return { ok: false, error: `DB connection failed: ${err.message}` };
+  m1Running = true;
+  console.log("[M1] Phase-1 Engine STARTING...");
+
+  try {
+    // Ensure DB connected
+    if (mongoose.connection.readyState === 0) {
+      console.warn("[M1] Mongo not ready → retry later");
+      return { ok: false, retry: true, error: "DB not connected" };
     }
-  }
 
-  const universe = await loadUniverse();
-  if (!universe.length) {
-    return { ok: false, error: "Universe empty" };
-  }
-
-  console.log(`[M1] Universe loaded: ${universe.length} symbols`);
-  const snapshots = await fetchQuoteSnapshots(universe);
-
-  console.log(`[M1] Got ${snapshots.length} quote snapshots`);
-
-  // Compute ONLY +5% movers
-  const movers = [];
-  for (const s of snapshots) {
-    const changePct = percentChange(s.prevClose, s.ltp);
-    if (changePct >= CONFIG.ALERT_THRESHOLD_PCT) {
-      movers.push({
-        symbol: s.symbol,
-        prevClose: s.prevClose,
-        ltp: s.ltp,
-        changePct,
-      });
+    const universe = await loadUniverse();
+    if (!universe.length) {
+      return { ok: false, retry: false, error: "Universe empty" };
     }
+
+    const snapshots = await fetchQuoteSnapshots(universe);
+    console.log(`[M1] Retrieved ${snapshots.length} snapshots`);
+
+    await storeQuotes(snapshots);
+
+    // Filter movers
+    const movers = snapshots.filter(s => {
+      const cp = pctChange(s.prevClose, s.ltp);
+      return cp !== null && cp >= CONFIG.ALERT_THRESHOLD_PCT;
+    }).sort((a, b) => b.changePct - a.changePct);
+
+    await saveMovers(movers);
+
+    console.log("[M1] COMPLETED successfully.");
+    return { ok: true, movers };
+  } catch (err) {
+    console.error("[M1] Fatal error:", err.message);
+    return { ok: false, retry: true, error: err.message };
+  } finally {
+    m1Running = false;
   }
-
-  movers.sort((a, b) => b.changePct - a.changePct);
-
-  // Save quotes + movers
-  await storeQuotesInDatabase(snapshots);
-  await persistMovers(movers);
-
-  console.log(`[M1] Phase-1 scan complete. Movers = ${movers.length}`);
-  return { ok: true, movers };
 }
 
 module.exports = {

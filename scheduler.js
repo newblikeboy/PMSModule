@@ -1,221 +1,233 @@
-// scheduler.js - Comprehensive trading engine scheduler (FINAL VERSION)
+// scheduler.js — FINAL PRODUCTION VERSION (CLEAN LOGS)
 "use strict";
 
 const { DateTime } = require("luxon");
 const { IST } = require("./utils/time");
 
+// Engines
+const marketSocket = require("./services/marketSocket.service");
 const m1Service = require("./services/m1.service");
 const m2Service = require("./services/m2.service");
 const tradeEngine = require("./services/tradeEngine.service");
 
+// DB
 const M1Mover = require("./models/M1Mover");
 const M2Signal = require("./models/M2Signal");
 
 // ---------------- CONFIG ----------------
-const CONFIG = Object.freeze({
-  M1_START_HOUR: 10,
-  M1_START_MINUTE: 30,
+const CONFIG = {
+  MARKET_OPEN_H: 9,
+  MARKET_OPEN_M: 15,
+  MARKET_CLOSE_H: 15,
+  MARKET_CLOSE_M: 30,
+  M1_FORCE_START_ALLOWED: true,
+  STARTUP_CYCLE_MS: 15000,  // 15 sec
+  TRADE_CYCLE_MS: 15000,    // 15 sec
+  SIGNAL_POLL_MS: 6000,     // 6 sec fallback
+};
 
-  MARKET_OPEN_HOUR: 9,
-  MARKET_OPEN_MINUTE: 15,
-  MARKET_CLOSE_HOUR: 15,
-  MARKET_CLOSE_MINUTE: 30,
+// ---------------- FLAGS ----------------
+let flags = {
+  day: null,
+  socketConnected: false,
 
-  TRADE_CUTOFF_HOUR: 14,
-  TRADE_CUTOFF_MINUTE: 45,
-});
+  m1Starting: false,
+  m1Started: false,
 
-// ---------------- TIME UTILS ----------------
-function isMarketDayIST() {
-  const now = DateTime.now().setZone(IST);
-  const dow = now.weekday;
-  return dow >= 1 && dow <= 5;
+  m2Starting: false,
+  m2Started: false,
+
+  tradeStarted: false,
+  enginesStopped: false
+};
+
+// ---------------- TIME HELPERS ----------------
+const nowIST = () => DateTime.now().setZone(IST);
+
+function isMarketDay() {
+  const d = nowIST().weekday;
+  return d >= 1 && d <= 5;
 }
 
-function isMarketOpenIST() {
-  if (!isMarketDayIST()) return false;
-  const now = DateTime.now().setZone(IST);
-
-  const current = now.hour * 60 + now.minute;
-  const open = CONFIG.MARKET_OPEN_HOUR * 60 + CONFIG.MARKET_OPEN_MINUTE;
-  const close = CONFIG.MARKET_CLOSE_HOUR * 60 + CONFIG.MARKET_CLOSE_MINUTE;
-
+function isMarketOpen() {
+  if (!isMarketDay()) return false;
+  const n = nowIST();
+  const current = n.hour * 60 + n.minute;
+  const open = CONFIG.MARKET_OPEN_H * 60 + CONFIG.MARKET_OPEN_M;
+  const close = CONFIG.MARKET_CLOSE_H * 60 + CONFIG.MARKET_CLOSE_M;
   return current >= open && current <= close;
 }
 
-function isM1StartTimeIST() {
-  const now = DateTime.now().setZone(IST);
-  return (
-    isMarketDayIST() &&
-    now.hour === CONFIG.M1_START_HOUR &&
-    now.minute === CONFIG.M1_START_MINUTE
-  );
-}
-
-function isAfterTradeCutoffIST() {
-  const now = DateTime.now().setZone(IST);
-  const current = now.hour * 60 + now.minute;
-  const cutoff = CONFIG.TRADE_CUTOFF_HOUR * 60 + CONFIG.TRADE_CUTOFF_MINUTE;
-  return current >= cutoff;
-}
-
-async function getTodayM1Movers() {
-  const now = DateTime.now().setZone(IST);
-  const start = now.startOf("day").toJSDate();
-  const end = now.endOf("day").toJSDate();
-  return await M1Mover.find({
-    capturedAt: { $gte: start, $lte: end },
-  }).lean();
-}
-
-async function getTodayM2Signals() {
-  const now = DateTime.now().setZone(IST);
-  const start = now.startOf("day").toJSDate();
-  const end = now.endOf("day").toJSDate();
-  return await M2Signal.find({
-    updatedAt: { $gte: start, $lte: end },
-    inEntryZone: true,
-  }).lean();
-}
-
-// ---------------- ENGINE FLAGS ----------------
-let m1Started = false;
-let m2Started = false;
-let tradeStarted = false;
-let enginesStoppedForToday = false;
-
-// ---------------- ENGINE STARTERS ----------------
-async function startM1Engine() {
-  if (m1Started) return;
-
-  console.log("[SCHED] Starting M1 Engine…");
-  try {
-    const res = await m1Service.startEngine();
-    if (res.ok) {
-      m1Started = true;
-      console.log(
-        "[SCHED] M1 Engine started, movers:",
-        res.movers?.length || 0
-      );
-      // Trigger M2 immediately if movers are available
-      if (res.movers && res.movers.length > 0) {
-        await startM2Engine(startTradeEngine);
-      }
-    }
-  } catch (err) {
-    console.error("[SCHED] M1 failed:", err.message);
-  }
-}
-
-async function startM2Engine() {
-  if (m2Started) return;
-
-  const movers = await getTodayM1Movers();
-  if (!movers.length) {
-    console.log("[SCHED] No M1 movers → M2 won't start yet");
-    return;
-  }
-
-  console.log("[SCHED] Starting M2 Engine…");
-  try {
-    const res = await m2Service.startM2Engine();
-    if (res.ok) {
-      m2Started = true;
-      console.log("[SCHED] M2 Engine started");
-    }
-  } catch (err) {
-    console.error("[SCHED] M2 failed:", err.message);
-  }
-}
-
-async function startTradeEngine() {
-  if (tradeStarted) return;
-
-  const signals = await getTodayM2Signals();
-  if (!signals.length) {
-    console.log("[SCHED] No M2 signals → Trade Engine won't start yet");
-    return;
-  }
-
-  console.log("[SCHED] Trade Engine is active.");
-  tradeStarted = true;
+function isAfterCutoff() {
+  const n = nowIST();
+  const cutoff = 14 * 60 + 45;
+  const nowMin = n.hour * 60 + n.minute;
+  return nowMin >= cutoff;
 }
 
 // ---------------- DAILY RESET ----------------
 function resetDailyFlags() {
-  m1Started = false;
-  m2Started = false;
-  tradeStarted = false;
-  enginesStoppedForToday = false;
+  const today = nowIST().toISODate();
 
-  console.log("[SCHED] Daily flags reset");
-}
+  if (flags.day !== today) {
+    flags = {
+      day: today,
+      socketConnected: false,
 
-// ---------------- RUN DAILY START CHECKS ----------------
-async function runDailyStartChecks() {
-  if (!isMarketOpenIST()) return;
+      m1Starting: false,
+      m1Started: false,
 
-  if (isM1StartTimeIST()) await startM1Engine();
+      m2Starting: false,
+      m2Started: false,
 
-  if (m1Started && !m2Started) await startM2Engine();
+      tradeStarted: false,
+      enginesStopped: false
+    };
 
-  if (m2Started && !tradeStarted && !isAfterTradeCutoffIST())
-    await startTradeEngine();
-}
-
-// ---------------- MARKET CYCLE ----------------
-async function runMarketCycle() {
-  // Stop engines ONCE after market close
-  if (!isMarketOpenIST()) {
-    if (!enginesStoppedForToday) {
-      enginesStoppedForToday = true;
-      console.log("[SCHED] Market closed → Stopping ALL engines…");
-
-      try {
-        await m2Service.stopM2Engine?.();
-      } catch {}
-
-      try {
-        await tradeEngine.stopRealTimeMonitoring?.();
-      } catch {}
-
-      console.log("[SCHED] All engines stopped for the day.");
-    }
-    return;
+    console.log("[SCHED] New Market Day — Flags Reset");
   }
+}
 
-  // MARKET OPEN → Active trading cycle
+// ---------------- START MARKET SOCKET ----------------
+async function startMarketSocket() {
   try {
-    if (tradeStarted && !isAfterTradeCutoffIST()) {
-      await tradeEngine.autoEnterOnSignal();
-    }
+    await marketSocket.start();
+  } catch {}
+}
 
-    await tradeEngine.checkOpenTradesAndUpdate();
+// ---------------- START M1 ----------------
+async function startM1() {
+  if (flags.m1Started || flags.m1Starting) return;
+  flags.m1Starting = true;
+
+  try {
+    const res = await m1Service.startEngine();
+    if (res.ok) {
+      flags.m1Started = true;
+      console.log("[SCHED] M1 Completed — Movers Found:", res.movers?.length || 0);
+    }
   } catch (err) {
-    console.error("[SCHED] Market cycle error:", err.message);
+    console.error("[SCHED] M1 Error:", err.message);
+  }
+
+  flags.m1Starting = false;
+}
+
+// ---------------- START M2 ----------------
+async function startM2() {
+  if (!flags.m1Started || flags.m2Started || flags.m2Starting) return;
+  flags.m2Starting = true;
+
+  try {
+    const res = await m2Service.startM2Engine(onRealtimeSignal);
+    if (res.ok) {
+      flags.m2Started = true;
+      console.log("[SCHED] M2 Engine Active");
+    }
+  } catch (err) {
+    console.error("[SCHED] M2 Error:", err.message);
+  }
+
+  flags.m2Starting = false;
+}
+
+// ---------------- START TRADE ENGINE ----------------
+async function startTradeEngine() {
+  if (flags.tradeStarted || !flags.m2Started || isAfterCutoff()) return;
+
+  const sigs = await M2Signal.find({ inEntryZone: true }).lean();
+  if (!sigs.length) return;
+
+  flags.tradeStarted = true;
+  console.log("[SCHED] Trade Engine Activated");
+}
+
+// ---------------- REAL-TIME M2 CALLBACK ----------------
+async function onRealtimeSignal() {
+  if (!flags.m2Started || isAfterCutoff()) return;
+  if (!flags.tradeStarted) {
+    await startTradeEngine();
   }
 }
 
-// ---------------- START SCHEDULER ----------------
-function startScheduler() {
-  console.log("[SCHED] Comprehensive scheduler started.");
+// ---------------- FALLBACK DB SIGNAL WATCHER ----------------
+async function fallbackSignalWatcher() {
+  if (!flags.m2Started || flags.tradeStarted || isAfterCutoff()) return;
 
-  // Reset flags at market open (once per day)
-  setInterval(() => {
-    const now = DateTime.now().setZone(IST);
-    if (
-      now.hour === CONFIG.MARKET_OPEN_HOUR &&
-      now.minute === CONFIG.MARKET_OPEN_MINUTE
-    ) {
-      resetDailyFlags();
+  const recent = await M2Signal.find({
+    inEntryZone: true,
+    updatedAt: { $gte: new Date(Date.now() - 60 * 1000) }
+  });
+
+  if (recent.length > 0) {
+    await startTradeEngine();
+  }
+}
+
+// ---------------- STOP ALL ENGINES ----------------
+async function stopAllEngines() {
+  if (flags.enginesStopped) return;
+  flags.enginesStopped = true;
+
+  console.log("[SCHED] Market Closed — Stopping Engines...");
+
+  try { await m2Service.stopM2Engine(); } catch {}
+}
+
+// ---------------- STARTUP PIPELINE ----------------
+async function startupCycle() {
+  resetDailyFlags();
+
+  if (!isMarketOpen()) return;
+
+  await startMarketSocket();
+
+  // M1 auto-run ANY TIME server starts
+  if (!flags.m1Started) {
+    await startM1();
+  }
+
+  if (flags.m1Started && !flags.m2Started) {
+    await startM2();
+  }
+
+  if (flags.m2Started && !flags.tradeStarted && !isAfterCutoff()) {
+    await startTradeEngine();
+  }
+}
+
+// ---------------- TRADE CYCLE ----------------
+async function tradeCycle() {
+  if (!isMarketOpen()) return;
+
+  try {
+    if (flags.tradeStarted && !isAfterCutoff()) {
+      await tradeEngine.autoEnterOnSignal();  // bulk entry
     }
-  }, 60 * 1000);
 
-  // Run startup sequence
-  setInterval(runDailyStartChecks, 60 * 1000);
+    await tradeEngine.checkOpenTradesAndUpdate(); // exits
+  } catch (e) {
+    console.error("[SCHED] tradeCycle:", e.message);
+  }
+}
 
-  // Market monitoring
-  setInterval(runMarketCycle, 30 * 1000);
+// ---------------- MARKET CLOSE CHECK ----------------
+function checkMarketClose() {
+  if (!isMarketOpen()) {
+    stopAllEngines();
+  }
+}
+
+// ---------------- SCHEDULER START ----------------
+function startScheduler() {
+  console.log("[SCHED] Scheduler Started (Clean Logs)");
+
+  startMarketSocket();
+
+  setInterval(startupCycle, CONFIG.STARTUP_CYCLE_MS);
+  setInterval(tradeCycle, CONFIG.TRADE_CYCLE_MS);
+  setInterval(fallbackSignalWatcher, CONFIG.SIGNAL_POLL_MS);
+  setInterval(checkMarketClose, 60000); // every 1 min
 }
 
 module.exports = { startScheduler };

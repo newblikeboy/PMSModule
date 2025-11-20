@@ -91,7 +91,7 @@ router.post("/system", adminRequired, adminCtrl.updateSystemSetting);
 // ─────────────────────────────────────────────
 // ✅ Engine Control (Live Scanner)
 // ─────────────────────────────────────────────
-router.get("/engine/status", adminRequired, getEngineStatus);
+
 router.post("/engine/start", adminRequired, startScanEngine);
 router.post("/engine/stop", adminRequired, stopScanEngine);
 
