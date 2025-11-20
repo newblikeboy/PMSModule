@@ -25,7 +25,16 @@
       window.location.href = "./admin-login.html";
       return { ok: false };
     }
-    return res.json();
+
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      if (ct.includes('application/json')) return await res.json();
+      const txt = await res.text();
+      return { ok: false, error: txt };
+    }
+
+    if (ct.includes('application/json')) return await res.json();
+    return { ok: true, data: await res.text() };
   }
 
   async function jpostAuth(url, body) {
@@ -40,7 +49,14 @@
       window.location.href = "./admin-login.html";
       return { ok: false };
     }
-    return res.json();
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      if (ct.includes('application/json')) return await res.json();
+      const txt = await res.text();
+      return { ok: false, error: txt };
+    }
+    if (ct.includes('application/json')) return await res.json();
+    return { ok: true, data: await res.text() };
   }
 
   // -------------------------------
@@ -242,6 +258,8 @@
         : '--';
       
       const tr = document.createElement("tr");
+      // Attach trade id so admin P&L updates match rows reliably
+      try { tr.setAttribute('data-tradeid', trade._id); } catch(e) {}
       tr.innerHTML = `
         <td><div class="admin-user-cell">${userName}</div></td>
         <td>${trade.symbol}</td>
@@ -765,34 +783,29 @@
     // Update each open trade row with current P&L
     const rows = tableBody.querySelectorAll('tr.status-open');
     rows.forEach(row => {
+      const tradeId = row.getAttribute('data-tradeid');
+      if (!tradeId) return;
+      // Attempt to find trade data in pnlMap across users
+      let foundTrade = null;
+      for (const [userId, trades] of Object.entries(pnlMap)) {
+        if (trades && trades[tradeId]) {
+          foundTrade = trades[tradeId];
+          break;
+        }
+      }
+      if (!foundTrade) return;
+
       const cells = row.querySelectorAll('td');
       if (cells.length >= 8) {
-        const userNameCell = cells[0].textContent.trim();
-        const symbolCell = cells[1].textContent.trim();
-        
-        // Find matching user data
-        let foundTrade = null;
-        for (const [userId, trades] of Object.entries(pnlMap)) {
-          for (const [tradeId, tradeData] of Object.entries(trades)) {
-            if (tradeData.symbol === symbolCell) {
-              foundTrade = tradeData;
-              break;
-            }
-          }
-          if (foundTrade) break;
-        }
-        
-        if (foundTrade) {
-          // Update current price
-          cells[4].textContent = formatCurrency(foundTrade.ltp || foundTrade.entryPrice);
-          
-          // Update P&L
-          const pnlAbs = foundTrade.pnlAbs || 0;
-          const pnlPct = foundTrade.pnlPct || 0;
-          const pnlCell = cells[7];
-          pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
-          pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
-        }
+        // Update current price
+        cells[4].textContent = formatCurrency(foundTrade.ltp || foundTrade.entryPrice);
+
+        // Update P&L
+        const pnlAbs = foundTrade.pnlAbs || 0;
+        const pnlPct = foundTrade.pnlPct || 0;
+        const pnlCell = cells[7];
+        pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+        pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
       }
     });
   }

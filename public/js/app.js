@@ -492,7 +492,24 @@
       logout();
       return { ok: false };
     }
-    return res.json();
+
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      // Try to return JSON error if present, otherwise return text
+      if (ct.includes('application/json')) {
+        return await res.json();
+      }
+      const txt = await res.text();
+      return { ok: false, error: txt };
+    }
+
+    if (ct.includes('application/json')) {
+      return await res.json();
+    }
+
+    // Non-JSON success response
+    const txt = await res.text();
+    return { ok: true, data: txt };
   };
 
   const jpostAuth = async (url, body) => {
@@ -505,7 +522,16 @@
       logout();
       return { ok: false };
     }
-    return res.json();
+
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      if (ct.includes('application/json')) return await res.json();
+      const txt = await res.text();
+      return { ok: false, error: txt };
+    }
+
+    if (ct.includes('application/json')) return await res.json();
+    return { ok: true, data: await res.text() };
   };
 
   const formatCurrency = (val) => {
@@ -869,6 +895,8 @@
 
     trades.forEach((trade) => {
       const tr = document.createElement("tr");
+      // Attach trade id to row for reliable updates
+      try { tr.setAttribute('data-tradeid', trade._id); } catch(e) {}
       const liveData = pnlMap[trade._id] || {};
       const currentPrice = liveData.ltp || trade.entryPrice;
       const pnlAbs = liveData.pnlAbs || 0;
@@ -1030,26 +1058,22 @@
     const tableBody = $("#tradesTableBody");
     if (!tableBody || !openTrades.length) return;
     
-    // Update each open trade row with current P&L
+    // Update each open trade row with current P&L by matching trade id
     openTrades.forEach(trade => {
-      const rows = tableBody.querySelectorAll('tr');
-      for (let row of rows) {
-        const symbolCell = row.querySelector('td:first-child');
-        if (symbolCell && symbolCell.textContent === trade.symbol) {
-          const cells = row.querySelectorAll('td');
-          if (cells.length >= 7) {
-            // Update current price
-            cells[3].textContent = formatCurrency(trade.ltp || trade.entryPrice);
-            
-            // Update P&L
-            const pnlAbs = trade.pnlAbs || 0;
-            const pnlPct = trade.pnlPct || 0;
-            const pnlCell = cells[6];
-            pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
-            pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
-          }
-          break;
-        }
+      if (!trade || !trade._id) return;
+      const row = tableBody.querySelector(`tr[data-tradeid="${trade._id}"]`);
+      if (!row) return;
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 7) {
+        // Update current price
+        cells[3].textContent = formatCurrency(trade.ltp || trade.entryPrice);
+
+        // Update P&L
+        const pnlAbs = trade.pnlAbs || 0;
+        const pnlPct = trade.pnlPct || 0;
+        const pnlCell = cells[6];
+        pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+        pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
       }
     });
   }
