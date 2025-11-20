@@ -5,14 +5,16 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
 const dotenv = require("dotenv");
+const crypto = require("crypto");
 
 dotenv.config();
 
-// Where we persist tokens so refresh works forever
+// ------------------------------------------------------------------
+// FILE STORAGE
+// ------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, "../data");
 const TOKENS_FILE = path.join(DATA_DIR, "./tokens_fyers.json");
 
-// Make sure /data exists so writeFileSync doesn't crash
 function ensureDataDir() {
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -23,255 +25,74 @@ function ensureDataDir() {
   }
 }
 
-// Load tokens from disk into memory
 function loadTokensFromDisk() {
   try {
     ensureDataDir();
     if (fs.existsSync(TOKENS_FILE)) {
-      const raw = fs.readFileSync(TOKENS_FILE, "utf8");
-      return JSON.parse(raw);
+      return JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
     }
   } catch (e) {
     console.error("[fyersAuth] loadTokensFromDisk error:", e);
   }
 
-  // default empty structure
   return {
     access_token: null,
     refresh_token: null,
     access_created_at: 0,
-    access_expires_in: 0,
+    access_expires_in: 3600,
     last_auto_refresh_at: 0,
     last_manual_refresh_at: 0
   };
 }
 
-// Save tokens back to disk
 function saveTokensToDisk(tokens) {
   ensureDataDir();
   fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf8");
 }
 
-// in-memory cache of tokens
 let state = loadTokensFromDisk();
 
-/**
- * getLoginUrl()
- * Step 1 in onboarding.
- * You hit this URL in a browser, login to Fyers, approve.
- * Fyers redirects to FYERS_REDIRECT_URI?auth_code=XXXXX
- */
+// ------------------------------------------------------------------
+// LOGIN URL (STEP 1)
+// ------------------------------------------------------------------
 function getLoginUrl() {
   const appId = process.env.FYERS_APP_ID;
   const redirectUri = process.env.FYERS_REDIRECT_URI;
 
-  if (!appId || !redirectUri) {
-    console.error("[fyersAuth] Missing FYERS_APP_ID or FYERS_REDIRECT_URI in env");
-  }
-
-  // Fyers auth-code URL style
   return (
     "https://api-t1.fyers.in/api/v3/generate-authcode" +
     "?client_id=" + encodeURIComponent(appId || "") +
     "&redirect_uri=" + encodeURIComponent(redirectUri || "") +
-    "&response_type=code" +
-    "&state=quantpulse"
+    "&response_type=code&state=quantpulse"
   );
 }
 
-const crypto = require("crypto");
-
-
-/**
- * exchangeAuthCode(authCode)
- * Step 2: Turn short-lived auth_code -> long-lived access_token (+ maybe refresh_token)
- * using /validate-authcode as per Fyers v3 docs.
- */
+// ------------------------------------------------------------------
+// EXCHANGE AUTH CODE (STEP 2)
+// ------------------------------------------------------------------
 async function exchangeAuthCode(authCode) {
   const appId = process.env.FYERS_APP_ID;
   const secret = process.env.FYERS_APP_SECRET;
 
-  if (!appId || !secret) {
-    console.error("[fyersAuth] Missing FYERS_APP_ID / FYERS_APP_SECRET");
-    throw new Error("Server env incomplete. Check broker config.");
-  }
+  const appIdHash = crypto.createHash("sha256").update(`${appId}:${secret}`).digest("hex");
 
-  if (!authCode) {
-    throw new Error("No auth_code provided");
-  }
+  const resp = await axios.post(
+    "https://api-t1.fyers.in/api/v3/validate-authcode",
+    { grant_type: "authorization_code", appIdHash, code: authCode },
+    { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+  );
 
-  // Fyers doc: appIdHash = sha256(appId + appSecret) as hex
-  const appIdHash = crypto
-    .createHash("sha256")
-    .update(`${appId}:${secret}`)
-    .digest("hex");
+  const data = resp.data;
+  const now = Date.now();
 
-  try {
-    // Call Fyers documented endpoint:
-    // POST https://api-t1.fyers.in/api/v3/validate-authcode
-    // Body: { grant_type, appIdHash, code }
-    const resp = await axios.post(
-      "https://api-t1.fyers.in/api/v3/validate-authcode",
-      {
-        grant_type: "authorization_code",
-        appIdHash: appIdHash,
-        code: authCode
-      },
-      {
-        headers: {
-          "Content-Type": "application/json"
-        },
-        timeout: 10_000
-      }
-    );
+  state.access_token = data.access_token;
+  state.refresh_token = data.refresh_token;
+  state.access_created_at = now;
+  state.access_expires_in = data.expires_in || 3600;
+  state.last_manual_refresh_at = now;
 
-    const data = resp.data || {};
-
-
-    if (!data.access_token) {
-      console.error("[fyersAuth] Unexpected validate-authcode response:", data);
-      throw new Error("Broker did not return access_token");
-    }
-
-     const nowTs = Date.now();
-
-    // Save in-memory
-    state.access_token          = data.access_token;
-    state.refresh_token         = data.refresh_token || state.refresh_token || null;
-    state.access_created_at     = nowTs;
-    state.access_expires_in     = data.expires_in || state.access_expires_in || 3600;
-    state.last_manual_refresh_at = nowTs;  // first time we got tokens = manual
-    // last_auto_refresh_at stays as-is
-
-    saveTokensToDisk(state);
-
-    console.log("[fyersAuth] exchangeAuthCode SUCCESS via validate-authcode. Token saved.");
-    return {
-      ok: true,
-      access_token: state.access_token,
-      refresh_token: state.refresh_token || null
-    };
-
-  } catch (err) {
-    if (err.response) {
-      // Fyers sends 401 with { code: -16, message: "Could not authenticate the user", s:"error" }
-      console.error(
-        "[fyersAuth] exchangeAuthCode Fyers error:",
-        err.response.status,
-        err.response.data
-      );
-
-      throw new Error(
-        "Fyers rejected auth_code: " +
-        (
-          err.response.data && err.response.data.message
-            ? err.response.data.message
-            : `status ${err.response.status}`
-        )
-      );
-    } else {
-      console.error("[fyersAuth] exchangeAuthCode ERROR:", err.message);
-      throw new Error("exchangeAuthCode failed: " + err.message);
-    }
-  }
-}
-
-//Refresh Token Code
-
-
-async function refreshAccessToken() {
-  const appId = process.env.FYERS_APP_ID;
-  const secret = process.env.FYERS_APP_SECRET;
-  const pinId = process.env.FYERS_PIN
-
-  if (!appId || !secret) {
-    console.error("[fyersAuth] Missing FYERS_APP_ID / FYERS_APP_SECRET for refresh");
-    throw new Error("Server env incomplete for refresh.");
-  }
-
-  if (!state.refresh_token) {
-    console.error("[fyersAuth] No refresh_token saved. You must run auth flow first.");
-    throw new Error("No refresh_token saved");
-  }
-
-  // Fyers doc: appIdHash = sha256(appId + appSecret) as hex
-  const appIdHash = crypto
-    .createHash("sha256")
-    .update(`${appId}:${secret}`)
-    .digest("hex");
-
-  try {
-    // Hitting the Fyers refresh endpoint.
-    const resp = await axios.post(
-      "https://api-t1.fyers.in/api/v3/validate-refresh-token",
-      {
-        grant_type: "refresh_token",
-        appIdHash: appIdHash,
-        refresh_token: state.refresh_token,
-        pin: pinId
-      },
-      {
-        headers: {
-          "Content-Type": "application/json"
-        },
-        timeout: 10_000
-      }
-    );
-
-    const data = resp.data || {};
-
-
-    if (!data.access_token) {
-      console.error("[fyersAuth] Unexpected refresh response:", data);
-      throw new Error("Broker did not return access_token on refresh");
-    }
-
-    const nowTs = Date.now();
-
-    // Update in-memory state
-    state.access_token          = data.access_token;
-    state.refresh_token         = data.refresh_token || state.refresh_token;
-    state.access_created_at     = nowTs;
-    state.access_expires_in     = data.expires_in || state.access_expires_in || 3600;
-    state.last_auto_refresh_at  = nowTs;  // this refresh was automatic
-    // last_manual_refresh_at stays unchanged here
-
-    // Persist to disk so restart is still authenticated
-    saveTokensToDisk(state);
-
-    console.log("[fyersAuth] refreshAccessToken SUCCESS. New access_token saved.");
-    return state.access_token;
-  } catch (err) {
-    if (err.response) {
-      console.error(
-        "[fyersAuth] refreshAccessToken Fyers error:",
-        err.response.status,
-        err.response.data
-      );
-
-      throw new Error(
-        "Refresh failed at broker: " +
-        (
-          err.response.data && err.response.data.message
-            ? err.response.data.message
-            : `status ${err.response.status}`
-        )
-      );
-    } else {
-      console.error("[fyersAuth] refreshAccessToken ERROR:", err.message);
-      throw new Error("refreshAccessToken failed: " + err.message);
-    }
-  }
-}
-//Force REfresh Code 
-
-
-async function forceRefreshNow() {
-  // we basically reuse refreshAccessToken, but afterward tag it manual
-  const newToken = await refreshAccessToken();
-  const nowTs = Date.now();
-  state.last_manual_refresh_at = nowTs;
   saveTokensToDisk(state);
+
   return {
     ok: true,
     access_token: state.access_token,
@@ -279,35 +100,93 @@ async function forceRefreshNow() {
   };
 }
 
-function getAuthMeta() {
-  return {
-    hasAccess: !!state.access_token,
-    hasRefresh: !!state.refresh_token,
-    tokenCreatedAt: state.access_created_at || null,
-    expiresInSec: state.access_expires_in || null,
-    lastAutoRefreshAt: state.last_auto_refresh_at || null,
-    lastManualRefreshAt: state.last_manual_refresh_at || null
-  };
+// ------------------------------------------------------------------
+// REFRESH TOKEN (AUTO + MANUAL)
+// ------------------------------------------------------------------
+let refreshLock = false;
+
+async function refreshAccessToken() {
+  if (refreshLock) {
+    return state.access_token; // Prevent parallel refresh
+  }
+
+  refreshLock = true;
+
+  try {
+    const appId = process.env.FYERS_APP_ID;
+    const secret = process.env.FYERS_APP_SECRET;
+    const pinId = process.env.FYERS_PIN;
+
+    const appIdHash = crypto.createHash("sha256").update(`${appId}:${secret}`).digest("hex");
+
+    const resp = await axios.post(
+      "https://api-t1.fyers.in/api/v3/validate-refresh-token",
+      {
+        grant_type: "refresh_token",
+        appIdHash,
+        refresh_token: state.refresh_token,
+        pin: pinId
+      },
+      { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+    );
+
+    const data = resp.data;
+    const now = Date.now();
+
+    state.access_token = data.access_token;
+    state.refresh_token = data.refresh_token;
+    state.access_created_at = now;
+    state.access_expires_in = data.expires_in || 3600;
+    state.last_auto_refresh_at = now;
+
+    saveTokensToDisk(state);
+
+    console.log("[fyersAuth] Auto-refresh OK");
+
+    return state.access_token;
+  } catch (err) {
+    console.error("[fyersAuth] Auto-refresh FAILED:", err.response?.data || err.message);
+    throw err;
+  } finally {
+    refreshLock = false;
+  }
 }
 
+// ------------------------------------------------------------------
+// AUTO REFRESH CHECKER (BUILT-IN DAEMON)
+// ------------------------------------------------------------------
+function startAutoRefreshDaemon() {
+  console.log("[fyersAuth] Auto-refresh daemon started (1 min cycle)");
 
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      const age = now - state.access_created_at;
+      const ttl = state.access_expires_in * 1000;
 
-/**
- * isExpired()
- * Check if current access token is near expiry.
- */
+      // Expiring in next 60 seconds?
+      if (age > ttl - 60000) {
+        console.log("[fyersAuth] Token near expiry → Auto refreshing…");
+        await refreshAccessToken();
+      }
+    } catch (err) {
+      console.error("[fyersAuth] Auto-refresh error:", err.message);
+    }
+  }, 60 * 1000); // CHECK EVERY 1 MINUTE
+}
+
+// Start daemon immediately
+startAutoRefreshDaemon();
+
+// ------------------------------------------------------------------
+// PUBLIC EXPORTS
+// ------------------------------------------------------------------
 function isExpired() {
-  if (!state.access_token) return true;
-  const ageMs = Date.now() - (state.access_created_at || 0);
-  const ttlMs = (state.access_expires_in || 0) * 1000;
-  // Refresh 60s early
-  return ageMs > (ttlMs - 60_000);
+  const age = Date.now() - state.access_created_at;
+  const ttl = (state.access_expires_in || 0) * 1000;
+  return age > ttl - 60000;
 }
 
-/**
- * getAccessToken()
- * Public helper for SDK calls / socket calls.
- */
 async function getAccessToken() {
   if (isExpired()) {
     await refreshAccessToken();
@@ -315,15 +194,27 @@ async function getAccessToken() {
   return state.access_token;
 }
 
-/**
- * getSocketToken()
- * For Fyers data socket auth.
- * Most libraries expect "APPID:ACCESSTOKEN"
- */
-async function getSocketToken() {
-  const appId = process.env.FYERS_APP_ID;
-  const access = await getAccessToken();
-  return `${appId}:${access}`;
+async function forceRefreshNow() {
+  const out = await refreshAccessToken();
+  state.last_manual_refresh_at = Date.now();
+  saveTokensToDisk(state);
+
+  return { ok: true, access_token: state.access_token, refresh_token: state.refresh_token };
+}
+
+function getSocketToken() {
+  return `${process.env.FYERS_APP_ID}:${state.access_token}`;
+}
+
+function getAuthMeta() {
+  return {
+    access_token_present: !!state.access_token,
+    refresh_token_present: !!state.refresh_token,
+    created_at: state.access_created_at,
+    expires_in: state.access_expires_in,
+    last_auto_refresh_at: state.last_auto_refresh_at,
+    last_manual_refresh_at: state.last_manual_refresh_at
+  };
 }
 
 module.exports = {
@@ -336,4 +227,3 @@ module.exports = {
   getAuthMeta,
   _debugDump: () => state
 };
-
