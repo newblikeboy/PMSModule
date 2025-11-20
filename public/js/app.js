@@ -923,6 +923,9 @@
       tr.className = statusClass;
       tableBody.appendChild(tr);
     });
+
+    // Reinitialize live trade cache for real-time P&L updates
+    initLiveTradeCache();
   }
 
   // ----------------------------------------
@@ -1032,29 +1035,132 @@
   // Real-time updates for P&L
   // ----------------------------------------
   let pnlUpdateInterval = null;
+  let liveEventSource = null;
+  let liveTradeCache = {}; // symbol -> { entryPrice, qty, _id, targetPrice, stopPrice, broker }
   
-  function startPnLUpdates() {
-    if (pnlUpdateInterval) {
-      clearInterval(pnlUpdateInterval);
-    }
+  function initLiveTradeCache() {
+    // Build cache from current trades table for instant P&L calculation
+    const tableBody = $("#tradesTableBody");
+    if (!tableBody) return;
     
-    // Update P&L every 5 seconds for real-time display
+    const rows = tableBody.querySelectorAll('tr[data-tradeid]');
+    liveTradeCache = {};
+    
+    rows.forEach(row => {
+      const tradeId = row.getAttribute('data-tradeid');
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 4) {
+        const symbol = cells[0].textContent.trim();
+        const qty = Number(cells[1].textContent.trim()) || 1;
+        const entryPrice = parseFloat(cells[2].textContent.replace(/[^0-9.-]/g, '')) || 0;
+        if (symbol && tradeId) {
+          liveTradeCache[symbol] = {
+            entryPrice,
+            qty,
+            _id: tradeId,
+            currentPrice: entryPrice,
+            targetPrice: null,
+            stopPrice: null,
+            broker: null
+          };
+        }
+      }
+    });
+  }
+  
+  function updatePnLForSymbol(symbol, currentPrice) {
+    if (!liveTradeCache[symbol] || !currentPrice) return;
+    
+    const trade = liveTradeCache[symbol];
+    const pnlAbs = (currentPrice - trade.entryPrice) * trade.qty;
+    const pnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+    
+    // Update cache
+    trade.currentPrice = currentPrice;
+    
+    // Find and update the row immediately
+    const tableBody = $("#tradesTableBody");
+    if (!tableBody) return;
+    
+    const row = tableBody.querySelector(`tr[data-tradeid="${trade._id}"]`);
+    if (!row) return;
+    
+    const cells = row.querySelectorAll('td');
+    if (cells.length >= 7) {
+      // Update current price (cell 3)
+      cells[3].textContent = formatCurrency(currentPrice);
+      
+      // Update P&L (cell 6) with live P&L
+      const pnlCell = cells[6];
+      pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+      pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
+    }
+  }
+  
+  function startLiveTickStream() {
+    // Try to connect to live market ticks via Server-Sent Events
+    try {
+      const token = localStorage.getItem("qp_token");
+      const url = token 
+        ? `/api/live-market-ticks?token=${encodeURIComponent(token)}`
+        : `/api/live-market-ticks`;
+      
+      liveEventSource = new EventSource(url);
+      
+      liveEventSource.onmessage = (event) => {
+        try {
+          const tick = JSON.parse(event.data);
+          if (tick && tick.symbol && tick.ltp) {
+            updatePnLForSymbol(tick.symbol, tick.ltp);
+          }
+        } catch (err) {
+          console.warn("Failed to parse live tick:", err);
+        }
+      };
+      
+      liveEventSource.onerror = (err) => {
+        console.warn("Live tick stream error, falling back to polling:", err);
+        liveEventSource.close();
+        liveEventSource = null;
+        // Fallback to polling if SSE fails
+        startPnLPolling();
+      };
+      
+      console.log("Live tick stream connected");
+    } catch (err) {
+      console.warn("Failed to start live tick stream, using polling:", err);
+      startPnLPolling();
+    }
+  }
+  
+  function startPnLPolling() {
+    // Fallback: Poll every 10 seconds if live stream unavailable
+    if (pnlUpdateInterval) clearInterval(pnlUpdateInterval);
+    
     pnlUpdateInterval = setInterval(async () => {
       try {
         const openTrades = document.querySelectorAll('.status-open');
-        if (openTrades.length === 0) return; // No open trades to update
+        if (openTrades.length === 0) return;
         
         const pnlResult = await jgetAuth("/trade/live-pnl");
         if (pnlResult && pnlResult.ok) {
-          updateOpenTradesPnL(pnlResult.open || []);
+          updateOpenTradesPnLFromAPI(pnlResult.open || []);
         }
       } catch (err) {
-        console.warn("Failed to update P&L:", err);
+        console.warn("Failed to update P&L via polling:", err);
       }
-    }, 5000);
+    }, 10000);
   }
   
-  function updateOpenTradesPnL(openTrades) {
+  function startPnLUpdates() {
+    // Initialize cache from visible trades
+    initLiveTradeCache();
+    
+    // Try live tick stream first, falls back to polling
+    startLiveTickStream();
+  }
+  
+  function updateOpenTradesPnLFromAPI(openTrades) {
     const tableBody = $("#tradesTableBody");
     if (!tableBody || !openTrades.length) return;
     
@@ -1082,6 +1188,10 @@
     if (pnlUpdateInterval) {
       clearInterval(pnlUpdateInterval);
       pnlUpdateInterval = null;
+    }
+    if (liveEventSource) {
+      liveEventSource.close();
+      liveEventSource = null;
     }
   }
 

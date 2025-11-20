@@ -244,4 +244,12 @@ class MarketSocket extends EventEmitter {
 }
 
 // export singleton
-module.exports = new MarketSocket();
+const marketSocketInstance = new MarketSocket();
+
+// Also export getter function for accessing the instance elsewhere
+function getMarketSocketInstance() {
+  return marketSocketInstance;
+}
+
+module.exports = marketSocketInstance;
+module.exports.getMarketSocketInstance = getMarketSocketInstance;

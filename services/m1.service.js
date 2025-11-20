@@ -4,6 +4,7 @@
 const fs = require("fs").promises;
 const path = require("path");
 const { DateTime } = require("luxon");
+const mongoose = require("mongoose");
 const fy = require("./fyersSdk");
 const LiveQuote = require("../models/LiveQuote");
 const M1Mover = require("../models/M1Mover");
@@ -151,13 +152,13 @@ async function storeQuotesInDatabase(snapshots) {
     });
 
     if (bulkOps.length >= 500) {
-      await LiveQuote.bulkWrite(bulkOps, { ordered: false });
+      await LiveQuote.bulkWrite(bulkOps, { ordered: false, maxTimeMS: 60000 });
       bulkOps.length = 0;
     }
   }
 
   if (bulkOps.length > 0) {
-    await LiveQuote.bulkWrite(bulkOps, { ordered: false });
+    await LiveQuote.bulkWrite(bulkOps, { ordered: false, maxTimeMS: 60000 });
   }
 
   console.log(`[M1] Stored ${snapshots.length} quotes.`);
@@ -196,6 +197,24 @@ async function persistMovers(movers = []) {
 // ---------------- MAIN ENGINE ----------------
 async function startEngine() {
   console.log("[M1] Starting Phase-1 Scan Engine…");
+
+  // Ensure DB connection
+  if (mongoose.connection.readyState === 0) {
+    try {
+      console.log("[M1] Connecting to MongoDB...");
+      await mongoose.connect(process.env.MONGO_URI, {
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 10,
+        retryWrites: true,
+        w: "majority"
+      });
+      console.log("[M1] MongoDB connected ✅");
+    } catch (err) {
+      console.error("[M1] DB connection failed:", err.message);
+      return { ok: false, error: `DB connection failed: ${err.message}` };
+    }
+  }
 
   const universe = await loadUniverse();
   if (!universe.length) {

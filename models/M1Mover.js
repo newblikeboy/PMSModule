@@ -5,6 +5,7 @@ const moverSchema = new mongoose.Schema({
   prevClose: Number,
   ltp: Number,
   changePct: Number,
+  moverDate: { type: String, index: true },  // YYYY-MM-DD format
   capturedAt: { type: Date, default: Date.now },
 });
 
