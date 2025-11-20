@@ -511,24 +511,24 @@
       const manualEl = $("#fyersManualRefresh");
 
       if (accessEl) {
-        accessEl.textContent = data.hasAccess ? "Saved" : "Missing";
-        setValueState(accessEl, data.hasAccess ? "good" : "bad");
+        accessEl.textContent = data.access_token_present ? "Saved" : "Missing";
+        setValueState(accessEl, data.access_token_present ? "good" : "bad");
       }
       if (refreshEl) {
-        refreshEl.textContent = data.hasRefresh ? "Saved" : "Missing";
-        setValueState(refreshEl, data.hasRefresh ? "good" : "bad");
+        refreshEl.textContent = data.refresh_token_present ? "Saved" : "Missing";
+        setValueState(refreshEl, data.refresh_token_present ? "good" : "bad");
       }
       if (issuedEl) {
-        issuedEl.textContent = formatTimestamp(data.tokenCreatedAt);
+        issuedEl.textContent = formatTimestamp(data.created_at);
       }
       if (expiryEl) {
-        expiryEl.textContent = formatExpiry(data.tokenCreatedAt, data.expiresInSec);
+        expiryEl.textContent = formatExpiry(data.created_at, data.expires_in);
       }
       if (autoEl) {
-        autoEl.textContent = formatTimestamp(data.lastAutoRefreshAt);
+        autoEl.textContent = formatTimestamp(data.last_auto_refresh_at);
       }
       if (manualEl) {
-        manualEl.textContent = formatTimestamp(data.lastManualRefreshAt);
+        manualEl.textContent = formatTimestamp(data.last_manual_refresh_at);
       }
 
       if (!quiet && msg) {
