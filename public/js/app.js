@@ -78,6 +78,14 @@
     });
   });
 
+  const navJumpButtons = $$("[data-nav-jump]");
+  navJumpButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const viewId = btn.dataset.navJump;
+      if (viewId) showView(viewId);
+    });
+  });
+
   const storedView = localStorage.getItem("app_active_view");
   if (storedView && views.some((v) => v.id === storedView)) {
     showView(storedView, { skipScroll: true });
@@ -120,6 +128,7 @@
   const angelClientIdInput = $("#angelClientIdInput");
   const saveAngelClientIdBtn = $("#saveAngelClientIdBtn");
   const angelClientIdMsg = $("#angelClientIdMsg");
+  const planChecklistAction = $("#checkPlanStatus");
 
   const openPricingModal = (trigger) => {
     if (trigger?.disabled) return;
@@ -151,6 +160,10 @@
 
       launchCheckout(plan);
     });
+  });
+
+  planChecklistAction?.addEventListener("click", () => {
+    openPricingModal(planChecklistAction);
   });
 
   $("#profileOption")?.addEventListener("click", () => {
@@ -657,37 +670,28 @@
     const tierLabel = PLAN_CONFIG[plan]?.label || plan;
     const isPaid = plan !== "Free";
     const badgeLabel = isPaid ? tierLabel : "Free";
+    const hasFullAccess = isPaid || role === "Admin";
 
-    $("#userPlan") && ($("#userPlan").textContent = `Plan: ${badgeLabel}`);
     $("#sidebarPlanPill") && ($("#sidebarPlanPill").textContent = `Plan: ${badgeLabel}`);
 
-    const planNameEl = $("#planName");
-    const planHintEl = $("#planHint");
-
-    if (planNameEl) {
-      if (role === "Admin") {
-        planNameEl.textContent = `Admin - ${tierLabel}`;
-      } else if (isPaid) {
-        planNameEl.textContent = `${plan} Plan`;
-      } else {
-        planNameEl.textContent = "Free Plan (Upgrade Available)";
+    const planChecklist = $("#checkPlan");
+    const planChecklistStatus = $("#checkPlanStatus");
+    if (planChecklist) {
+      planChecklist.dataset.state = hasFullAccess ? "done" : "action";
+      if (planChecklistStatus) {
+        planChecklistStatus.textContent = hasFullAccess ? "Active" : "Upgrade";
+        planChecklistStatus.disabled = hasFullAccess;
       }
     }
 
-    if (planHintEl) {
-      planHintEl.textContent = isPaid || role === "Admin"
-        ? "You have full access. Angel live execution can be enabled."
-        : "Upgrade to unlock automation and live Angel execution.";
-    }
-
     if (subscribeBtn) {
-      subscribeBtn.textContent = isPaid || role === "Admin" ? "Plan Active" : "Subscribe Now";
-      subscribeBtn.disabled = isPaid || role === "Admin";
+      subscribeBtn.textContent = hasFullAccess ? "Plan Active" : "Subscribe Now";
+      subscribeBtn.disabled = hasFullAccess;
     }
 
     if (upgradePlanBtn) {
-      upgradePlanBtn.textContent = isPaid || role === "Admin" ? "Plan Active" : "Upgrade Plan";
-      upgradePlanBtn.disabled = isPaid || role === "Admin";
+      upgradePlanBtn.textContent = hasFullAccess ? "Plan Active" : "Upgrade Plan";
+      upgradePlanBtn.disabled = hasFullAccess;
     }
   }
 
@@ -716,6 +720,15 @@
       connBadge.classList.toggle("danger", !connected);
     }
 
+    const checklistAngel = $("#checkAngel");
+    const checklistAngelStatus = $("#checkAngelStatus");
+    if (checklistAngel) {
+      checklistAngel.dataset.state = connected ? "done" : "action";
+      if (checklistAngelStatus) {
+        checklistAngelStatus.textContent = connected ? "Ready" : "Link";
+      }
+    }
+
     let marginPct = Math.round((angel.allowedMarginPct ?? 0.5) * 100);
     const percentFromServer = Number(angel.allowedMarginPercent);
     if (!Number.isNaN(percentFromServer)) {
@@ -741,9 +754,19 @@
 
     const engineBtn = $("#tradingEngineToggleBtn");
     if (engineBtn) {
-      engineBtn.textContent = engineEnabled ? "Disable Trading Engine" : "Enable Trading Engine";
-      // Enable if connected OR has access (so users can click and get alerts)
-      engineBtn.disabled = !(connected || hasAccess);
+      engineBtn.setAttribute("aria-pressed", engineEnabled ? "true" : "false");
+      engineBtn.disabled = false; // keep interactive so alerts can guide user
+    }
+
+    const checklistEngine = $("#checkEngine");
+    const checklistEngineStatus = $("#checkEngineStatus");
+    if (checklistEngine) {
+      checklistEngine.dataset.state = engineEnabled ? "done" : connected && hasAccess ? "action" : "pending";
+      if (checklistEngineStatus) {
+        checklistEngineStatus.textContent = engineEnabled ? "Engine On" : "Engine Off";
+        checklistEngineStatus.classList.toggle("on", engineEnabled);
+        checklistEngineStatus.classList.toggle("off", !engineEnabled);
+      }
     }
 
     const marginMsg = $("#angelMarginMsg");
@@ -792,6 +815,10 @@
     const initial = (displayName.charAt(0) || "U").toUpperCase();
     profileName && (profileName.textContent = firstName);
     profileInitial && (profileInitial.textContent = initial);
+    const overviewGreeting = $("#overviewGreeting");
+    if (overviewGreeting) {
+      overviewGreeting.textContent = `Hi ${firstName},`;
+    }
 
     updateAngelUI(user.angel || {}, user);
     return user;

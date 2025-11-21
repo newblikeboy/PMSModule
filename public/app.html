@@ -46,26 +46,25 @@
           <span></span><span></span><span></span>
         </button>
 
-        <div class="app-brand">
+        <button type="button" class="app-brand" data-nav-jump="overviewView" aria-label="Go to overview">
           <span class="app-logo">IG</span>
           <div class="app-brand-meta">
             <span class="app-brand-name">IntradayGain</span>
-            
+            <span class="app-brand-tag">Automation desk</span>
           </div>
-        </div>
+        </button>
 
-        
         <div class="app-header-actions">
-          <button type="button" class="app-btn primary" id="subscribeBtn">Subscribe Now</button>
           <div class="app-profile">
             <button type="button" class="app-profile-toggle" id="profileToggle">
               <span class="app-profile-avatar" id="profileInitial">U</span>
-              <span class="app-profile-name" id="profileName">Account</span>
+              <div class="app-profile-details">
+                <span class="app-profile-label">Logged in</span>
+                <span class="app-profile-name" id="profileName">Account</span>
+              </div>
               <span class="app-profile-caret"></span>
             </button>
             <div class="app-dropdown" id="profileDropdown">
-              <button type="button" data-action="profile" id="profileOption">My Profile</button>
-              <button type="button" data-action="password" id="passwordOption">Change Password</button>
               <button type="button" data-action="logout" id="logoutOption">Logout</button>
             </div>
           </div>
@@ -76,14 +75,74 @@
     <main class="app-main">
       <section class="app-view active" id="overviewView">
         <div class="container app-stack">
-          <section class="app-hero">
+          <section class="app-hero app-hero--overview">
             <div class="app-hero-top">
               <div class="app-hero-text">
-                <p class="app-eyebrow">Intraday Stock Automation</p>
-                <h1 class="app-hero-title">Operate with discipline, not impulse.</h1>
-             
+                <p class="app-eyebrow" id="overviewGreeting">Welcome back</p>
+                <h1 class="app-hero-title">Your automation cockpit is ready.</h1>
+                <p class="app-hero-sub">
+                  Review today's performance, configure guardrails, and start the live trading engine with confidence.
+                </p>
+                <div class="app-hero-actions">
+                  <button type="button" class="app-btn primary" data-nav-jump="automationView">Start automation</button>
+                  </div>
               </div>
-          
+
+              <div class="app-hero-guide">
+                <p class="app-hero-guide-label">Launch checklist</p>
+                <ul class="app-checklist">
+                  <li class="app-checklist-item" id="checkPlan" data-state="pending">
+                    <div class="app-checklist-main">
+                      <span class="app-checklist-dot"></span>
+                      <div class="app-checklist-body">
+                        <strong>Activate a plan</strong>
+                        <p class="app-checklist-hint">Paid plans unlock automation + Angel login.</p>
+                      </div>
+                    </div>
+                    <button type="button" class="app-checklist-status" id="checkPlanStatus">Upgrade</button>
+                  </li>
+                  <li class="app-checklist-item" id="checkAngel" data-state="pending">
+                    <div class="app-checklist-main">
+                      <span class="app-checklist-dot"></span>
+                      <div class="app-checklist-body">
+                        <strong>Link Angel account</strong>
+                        <p class="app-checklist-hint">Securely authorise Angel to stream funds &amp; place orders.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="app-checklist-status"
+                      id="checkAngelStatus"
+                      data-nav-jump="automationView"
+                    >
+                      Link
+                    </button>
+                  </li>
+                  <li class="app-checklist-item" id="checkEngine" data-state="pending">
+                    <div class="app-checklist-main">
+                      <span class="app-checklist-dot"></span>
+                      <div class="app-checklist-body">
+                        <strong>Enable trading engine</strong>
+                        <p class="app-checklist-hint">Live runs require an active plan + Angel guardrails.</p>
+                      </div>
+                    </div>
+                    <div class="app-checklist-toggle">
+                      <button
+                        type="button"
+                        class="app-toggle"
+                        id="tradingEngineToggleBtn"
+                        aria-pressed="false"
+                        aria-label="Toggle trading engine"
+                      >
+                        <span class="app-toggle-thumb"></span>
+                      </button>
+                      <span class="app-checklist-status app-checklist-status--inline app-engine-status off" id="checkEngineStatus">
+                        Engine Off
+                      </span>
+                    </div>
+                  </li>
+                </ul>
+                </div>
             </div>
 
             <div class="app-hero-metrics">
@@ -96,7 +155,7 @@
                 <span class="app-hero-metric-value" id="repWL">--</span>
               </article>
               <article class="app-hero-metric">
-                <span class="app-hero-metric-label">Net PnL (₹)</span>
+                <span class="app-hero-metric-label">Net P&amp;L (&#8377;)</span>
                 <span class="app-hero-metric-value" id="repPnL">--</span>
               </article>
               <article class="app-hero-metric">
@@ -232,15 +291,6 @@
                   <button type="submit" class="app-btn outline small" id="angelMarginSaveBtn">Save Risk Budget</button>
                 </form>
                </article>
-
-              <article class="app-setting-card">
-                <div class="app-setting-label">Trading Engine</div>
-                <div class="app-pill status" id="tradingEngineStatus" data-state="off">Engine OFF</div>
-                <button type="button" class="app-btn outline small" id="tradingEngineToggleBtn">Enable Trading Engine</button>
-                <p class="app-setting-hint">
-                  Requires subscription and Angel broker link. OFF: Paper trades only. ON: Live trades enabled.
-                </p>
-              </article>
 
               </div>
           </section>

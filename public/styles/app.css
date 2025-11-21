@@ -194,9 +194,9 @@
 
 .app-bar-inner {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
-  grid-template-areas: "menu brand status actions";
-  gap: 20px;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "menu brand actions";
+  gap: 24px;
   align-items: center;
   padding: 18px 0;
 }
@@ -241,6 +241,17 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.app-brand:focus-visible {
+  outline: 2px solid rgba(63, 95, 255, 0.35);
+  outline-offset: 4px;
+  border-radius: var(--app-radius-md);
 }
 
 .app-logo {
@@ -272,26 +283,6 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--app-text-muted);
-}
-
-.app-status {
-  grid-area: status;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
-}
-
-.app-status-pill {
-  background: rgba(63, 95, 255, 0.08);
-  color: var(--app-primary);
-  border: 1px solid rgba(63, 95, 255, 0.18);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px 14px;
-  white-space: nowrap;
 }
 
 .app-bar-btn {
@@ -328,11 +319,11 @@
 .app-profile-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 12px;
+  padding: 6px 16px 6px 6px;
   background: var(--app-surface-strong);
   border: 1px solid rgba(63, 95, 255, 0.16);
-  border-radius: var(--app-radius-sm);
+  border-radius: 999px;
   cursor: pointer;
   box-shadow: 0 14px 28px rgba(15, 22, 48, 0.1);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -345,19 +336,36 @@
 }
 
 .app-profile-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--app-primary), var(--app-secondary));
   color: #fff;
+  font-size: 16px;
   font-weight: 600;
   display: grid;
   place-items: center;
   letter-spacing: 0.02em;
 }
 
+.app-profile-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-profile-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--app-text-muted);
+}
+
 .app-profile-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--app-text);
   letter-spacing: -0.01em;
@@ -511,6 +519,199 @@
   color: var(--app-text);
   letter-spacing: -0.01em;
 }
+
+.app-hero--overview {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-hero--overview::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: var(--app-radius-xl);
+  border: 1px dashed rgba(63, 95, 255, 0.2);
+  pointer-events: none;
+}
+
+.app-hero-guide {
+  min-width: 320px;
+  max-width: 360px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: var(--app-radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.16);
+  box-shadow: var(--app-shadow-soft);
+  padding: 24px 24px 20px;
+  display: grid;
+  gap: 18px;
+}
+
+.app-hero-guide-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--app-text-muted);
+}
+
+.app-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.app-checklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-radius: var(--app-radius-md);
+  border: 1px solid rgba(63, 95, 255, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--app-shadow-soft);
+}
+
+.app-checklist-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.app-checklist-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(63, 95, 255, 0.3);
+  border: 1px solid rgba(63, 95, 255, 0.2);
+  margin-top: 4px;
+}
+
+.app-checklist-body {
+  display: grid;
+  gap: 4px;
+}
+
+.app-checklist-body strong {
+  font-size: 14px;
+}
+
+.app-checklist-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.app-checklist-status {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--app-text-soft);
+  border: 1px solid rgba(63, 95, 255, 0.4);
+  background: linear-gradient(135deg, rgba(63, 95, 255, 0.1), rgba(139, 77, 255, 0.12));
+  padding: 6px 14px;
+  border-radius: var(--app-radius-sm);
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+  font-family: inherit;
+}
+
+.app-checklist-status:hover:not(:disabled),
+.app-checklist-status:focus-visible:not(:disabled) {
+  color: var(--app-primary);
+  background: rgba(63, 95, 255, 0.18);
+}
+
+.app-checklist-item[data-state="done"] {
+  background: rgba(18, 184, 134, 0.08);
+  border-color: rgba(18, 184, 134, 0.3);
+}
+
+.app-checklist-item[data-state="done"] .app-checklist-dot {
+  background: var(--app-success);
+  border-color: rgba(18, 184, 134, 0.4);
+}
+
+.app-checklist-item[data-state="done"] .app-checklist-status {
+  color: var(--app-success);
+}
+
+.app-checklist-item[data-state="action"] {
+  background: rgba(63, 95, 255, 0.08);
+  border-color: rgba(63, 95, 255, 0.24);
+}
+
+.app-checklist-item[data-state="action"] .app-checklist-dot {
+  background: var(--app-primary);
+  border-color: rgba(63, 95, 255, 0.3);
+}
+
+.app-checklist-item[data-state="pending"] .app-checklist-status {
+  color: var(--app-text-muted);
+}
+
+.app-checklist-status:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.app-checklist-status--inline {
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: default;
+}
+
+.app-checklist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+}
+
+.app-toggle {
+  width: 48px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 22, 48, 0.2);
+  background: rgba(15, 22, 48, 0.1);
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  appearance: none;
+}
+
+.app-toggle:focus-visible {
+  outline: 2px solid rgba(63, 95, 255, 0.4);
+  outline-offset: 2px;
+}
+
+.app-toggle-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  box-shadow: 0 4px 10px rgba(15, 22, 48, 0.15);
+  transition: transform 0.2s ease;
+}
+
+.app-toggle[aria-pressed="true"] {
+  background: var(--app-primary);
+  border-color: transparent;
+}
+
+.app-toggle[aria-pressed="true"] .app-toggle-thumb {
+  transform: translateX(20px);
+}
+
 
 .app-columns {
   display: grid;
@@ -685,28 +886,6 @@
   line-height: 1.6;
 }
 
-.app-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(63, 95, 255, 0.12);
-  color: var(--app-primary);
-}
-
-.app-pill.good {
-  background: rgba(18, 184, 134, 0.14);
-  color: var(--app-success);
-}
-
-.app-pill.danger {
-  background: rgba(255, 95, 95, 0.14);
-  color: var(--app-danger);
-}
-
 .app-margin-form {
   display: grid;
   gap: 12px;
@@ -743,7 +922,8 @@
 }
 
 .pricing-modal-card {
-  width: min(920px, 100%);
+  width: min(820px, 100%);
+  max-height: calc(100vh - 80px);
   background: var(--app-surface-strong);
   border-radius: var(--app-radius-lg);
   box-shadow: var(--app-shadow);
@@ -751,6 +931,7 @@
   display: grid;
   gap: 18px;
   position: relative;
+  overflow-y: auto;
 }
 
 .pricing-modal-card h3 {
@@ -766,11 +947,11 @@
 }
 
 .pricing-modal-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 32px;
-  height: 32px;
+  position: sticky;
+  top: 0;
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 1px solid rgba(63, 95, 255, 0.18);
   background: rgba(255, 255, 255, 0.96);
@@ -781,6 +962,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  z-index: 10;
 }
 
 .pricing-modal-grid {
@@ -947,12 +1129,10 @@
   }
 
   .app-bar-inner {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto 1fr auto;
     grid-template-areas:
-      "menu actions"
-      "brand actions"
-      "status status";
-    row-gap: 16px;
+      "menu brand actions";
+    row-gap: 12px;
   }
 
   .app-header-actions {
@@ -961,12 +1141,13 @@
     gap: 12px;
   }
 
-  .app-header-actions .app-btn {
-    width: auto;
+  .app-hero-top {
+    flex-direction: column;
   }
 
-  .app-status {
-    justify-content: flex-start;
+  .app-hero-guide {
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -978,33 +1159,31 @@
 
 @media (max-width: 720px) {
   .app-bar-inner {
-    grid-template-columns: 1fr;
- 
-    gap: 16px;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "menu brand actions";
+    gap: 12px;
   }
 
   .app-header-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 14px;
+    justify-content: flex-end;
   }
 
   .app-profile {
-    width: 100%;
+    width: auto;
   }
 
   .app-profile-toggle {
-    justify-content: space-between;
-    width: 100%;
+    justify-content: center;
+    width: auto;
+    padding-right: 10px;
   }
 
-  .app-status {
-    justify-content: flex-start;
+  .app-profile-details {
+    display: none;
   }
 
-  .app-status-pill,
-  .app-bar-btn,
-  .app-btn {
+  .app-hero-actions .app-btn {
     width: 100%;
   }
 
@@ -1033,11 +1212,61 @@
     flex-direction: column;
   }
 
-  .app-status {
-    gap: 8px;
+  .app-checklist-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 
-  .app-status-pill {
+  .app-checklist-main {
+    width: 100%;
+  }
+
+  .app-checklist-status,
+  .app-checklist-toggle {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .app-checklist-status {
     text-align: center;
   }
+}
+.app-engine-status {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.app-engine-status.off {
+  color: var(--app-danger);
+}
+
+.app-engine-status.on {
+  color: var(--app-success);
+}
+.app-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(63, 95, 255, 0.12);
+  color: var(--app-primary);
+}
+
+.app-pill.good {
+  background: rgba(18, 184, 134, 0.14);
+  color: var(--app-success);
+}
+
+.app-pill.danger {
+  background: rgba(255, 95, 95, 0.14);
+  color: var(--app-danger);
 }
