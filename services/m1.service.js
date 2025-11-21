@@ -32,8 +32,9 @@ function safeNum(v) {
 }
 
 function pctChange(prev, ltp) {
-  if (!prev || !ltp) return null;
-  return ((ltp - prev) / prev) * 100;
+  if (!Number.isFinite(prev) || !Number.isFinite(ltp) || prev === 0) return null;
+  const res = ((ltp - prev) / prev) * 100;
+  return Number.isFinite(res) ? res : null;
 }
 
 // ---------------- Load Universe (cached 5 mins) ----------------
@@ -192,7 +193,7 @@ async function saveMovers(movers) {
           symbol: m.symbol,
           prevClose: m.prevClose,
           ltp: m.ltp,
-          changePct: Number(m.changePct.toFixed(2)),
+          changePct: m.changePct != null ? Number(m.changePct.toFixed(2)) : 0,
           moverDate: today,
           capturedAt: new Date(),
         }
@@ -233,8 +234,8 @@ async function startEngine() {
 
     // Filter movers
     const movers = snapshots.filter(s => {
-      const cp = pctChange(s.prevClose, s.ltp);
-      return cp !== null && cp >= CONFIG.ALERT_THRESHOLD_PCT;
+      s.changePct = pctChange(s.prevClose, s.ltp);
+      return s.changePct !== null && s.changePct >= CONFIG.ALERT_THRESHOLD_PCT;
     }).sort((a, b) => b.changePct - a.changePct);
 
     await saveMovers(movers);
