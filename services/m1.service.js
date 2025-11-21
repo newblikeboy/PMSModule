@@ -1,4 +1,4 @@
-// services/m1.service.js – PRODUCTION GRADE M1 ENGINE
+// services/m1.service.js – PRODUCTION GRADE M1 ENGINE (FIXED)
 "use strict";
 
 const fs = require("fs").promises;
@@ -20,7 +20,7 @@ const CONFIG = Object.freeze({
 // ---------------- INTERNAL GLOBALS ----------------
 let universeCache = null;
 let universeCacheTS = 0;
-let m1Running = false;  // HARD LOCK
+let m1Running = false; // HARD LOCK
 
 // ---------------- UTILS ----------------
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -32,9 +32,8 @@ function safeNum(v) {
 }
 
 function pctChange(prev, ltp) {
-  if (!Number.isFinite(prev) || !Number.isFinite(ltp) || prev === 0) return null;
-  const res = ((ltp - prev) / prev) * 100;
-  return Number.isFinite(res) ? res : null;
+  if (!prev || !ltp) return null;
+  return ((ltp - prev) / prev) * 100;
 }
 
 // ---------------- Load Universe (cached 5 mins) ----------------
@@ -48,9 +47,7 @@ async function loadUniverse() {
     const raw = await fs.readFile(filePath, "utf8");
     const arr = JSON.parse(raw || "[]");
 
-    universeCache = arr
-      .map((s) => fy.toFyersSymbol(s))
-      .filter(Boolean);
+    universeCache = arr.map((s) => fy.toFyersSymbol(s)).filter(Boolean);
     universeCacheTS = now;
 
     console.log(`[M1] Universe loaded: ${universeCache.length}`);
@@ -66,13 +63,16 @@ function extractPrevClose(q) {
   const v = q.raw?.v || q.raw || {};
 
   const candidates = [
-    v.prev_close_price, v.prevPrice, v.pc,
-    q.prevClose, q.prev_close_price
+    v.prev_close_price,
+    v.prevPrice,
+    v.pc,
+    q.prevClose,
+    q.prev_close_price,
   ];
 
   for (const c of candidates) {
     const n = safeNum(c);
-    if (n) return n;
+    if (n != null) return n;
   }
   return null;
 }
@@ -83,7 +83,7 @@ function extractLTP(q) {
 
   for (const c of candidates) {
     const n = safeNum(c);
-    if (n) return n;
+    if (n != null) return n;
   }
   return null;
 }
@@ -93,7 +93,7 @@ function normalizeQuote(q) {
   const prevClose = extractPrevClose(q);
   const ltp = extractLTP(q);
 
-  if (!prevClose || !ltp) return null;
+  if (prevClose == null || ltp == null) return null;
 
   return {
     symbol: q.symbol,
@@ -153,15 +153,15 @@ async function storeQuotes(snapshots) {
             name: cleanName,
             ltp: s.ltp,
             prevClose: s.prevClose,
-            changePct: changePct !== null ? Number(changePct.toFixed(2)) : 0,
-            changeAmt: Number(changeAmt.toFixed(2)),
+            changePct: Number(changePct?.toFixed(2)),
+            changeAmt: Number(changeAmt?.toFixed(2)),
             fetchedAt: new Date(),
             source: "m1",
             isActive: true,
-          }
+          },
         },
         upsert: true,
-      }
+      },
     });
 
     if (bulk.length >= 500) {
@@ -177,15 +177,17 @@ async function storeQuotes(snapshots) {
   console.log(`[M1] Stored ${snapshots.length} LiveQuote rows.`);
 }
 
+// ---------------- Save Movers ----------------
 async function saveMovers(movers) {
   const today = DateTime.now().setZone(IST).toISODate();
 
   console.log(`[M1] Saving movers for ${today}...`);
 
-  // Safe method: replace in single transaction-like behavior
   await M1Mover.deleteMany({ moverDate: today });
 
   for (const m of movers) {
+    if (typeof m.changePct !== "number" || !isFinite(m.changePct)) continue;
+
     await M1Mover.updateOne(
       { symbol: m.symbol, moverDate: today },
       {
@@ -193,10 +195,10 @@ async function saveMovers(movers) {
           symbol: m.symbol,
           prevClose: m.prevClose,
           ltp: m.ltp,
-          changePct: m.changePct != null ? Number(m.changePct.toFixed(2)) : 0,
+          changePct: Number(m.changePct.toFixed(2)),
           moverDate: today,
           capturedAt: new Date(),
-        }
+        },
       },
       { upsert: true }
     );
@@ -216,7 +218,6 @@ async function startEngine() {
   console.log("[M1] Phase-1 Engine STARTING...");
 
   try {
-    // Ensure DB connected
     if (mongoose.connection.readyState === 0) {
       console.warn("[M1] Mongo not ready → retry later");
       return { ok: false, retry: true, error: "DB not connected" };
@@ -232,11 +233,14 @@ async function startEngine() {
 
     await storeQuotes(snapshots);
 
-    // Filter movers
-    const movers = snapshots.filter(s => {
-      s.changePct = pctChange(s.prevClose, s.ltp);
-      return s.changePct !== null && s.changePct >= CONFIG.ALERT_THRESHOLD_PCT;
-    }).sort((a, b) => b.changePct - a.changePct);
+    // -------- FIXED MOVER LOGIC --------
+    const movers = snapshots
+      .map((s) => {
+        const cp = pctChange(s.prevClose, s.ltp);
+        return cp != null ? { ...s, changePct: cp } : null;
+      })
+      .filter((s) => s && s.changePct >= CONFIG.ALERT_THRESHOLD_PCT)
+      .sort((a, b) => b.changePct - a.changePct);
 
     await saveMovers(movers);
 

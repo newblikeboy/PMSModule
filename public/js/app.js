@@ -803,13 +803,13 @@
       return;
     }
 
-    const actionable = (resp.data || []).filter((row) => row.inEntryZone);
-    if (!actionable.length) {
-      tableBody.innerHTML = `<tr><td colspan="5">No active entries right now</td></tr>`;
+    const signals = resp.data || [];
+    if (!signals.length) {
+      tableBody.innerHTML = `<tr><td colspan="5">No signals available</td></tr>`;
       return;
     }
 
-    actionable.forEach((row) => {
+    signals.forEach((row) => {
       const entry = Number(row.ltp || 0);
       const target = entry * 1.015;
       const stop = entry * 0.9925;
@@ -819,7 +819,7 @@
         <td>${formatCurrency(entry)}</td>
         <td>${formatCurrency(target)}</td>
         <td>${formatCurrency(stop)}</td>
-        <td><button class="app-act-btn" disabled>Auto Trade (Soon)</button></td>
+        <td><button class="app-act-btn" disabled></button></td>
       `;
       tableBody.appendChild(tr);
     });
