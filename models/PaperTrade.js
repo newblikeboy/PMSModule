@@ -8,6 +8,8 @@ const PaperTradeSchema = new Schema(
   {
     // --- New: per-user ownership (for multi-user engine + per-user PnL) ---
     userId: { type: Types.ObjectId, ref: "User", index: true },
+    signalId: { type: Types.ObjectId, ref: "M2Signal" },
+    signalCapturedAt: { type: Date },
 
     // --- Core trade fields (existing-compatible) ---
     symbol: { type: String, required: true },

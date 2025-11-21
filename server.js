@@ -82,7 +82,7 @@ app.use("/", require("./routes/angel.auth.routes")); // /auth/angel/login + /aut
 // 🧩 Live Market Ticks Stream (Server-Sent Events)
 // ========================================
 const activeLiveTickClients = new Set();
-const { getMarketSocketInstance } = require("./services/marketSocket.service");
+const marketSocket = require("./services/marketSocket.service");
 
 app.get("/api/live-market-ticks", async (req, res) => {
   // Check authentication - session or token query param
@@ -115,75 +115,87 @@ app.get("/api/live-market-ticks", async (req, res) => {
     'Access-Control-Allow-Origin': '*'
   });
 
-  // Function to send tick to this client
+  const ownerId = `sse-${userId || "anon"}-${Date.now()}`;
+  let trackedSymbols = new Set();
+  let heartbeat = null;
+  let cleaned = false;
+  let syncTimer = null;
+
+  async function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    if (syncTimer) clearInterval(syncTimer);
+    if (heartbeat) clearInterval(heartbeat);
+    marketSocket.off('tick', handleTick);
+    if (trackedSymbols.size) {
+      try { await marketSocket.unsubscribe(Array.from(trackedSymbols), ownerId); }
+      catch (err) { console.warn("Failed to unsubscribe SSE symbols:", err.message); }
+    }
+    activeLiveTickClients.delete(sendTick);
+    res.end();
+  }
+
   const sendTick = (tick) => {
     try {
       res.write(`data: ${JSON.stringify(tick)}\n\n`);
     } catch (err) {
-      // Client disconnected or write failed
-      removeClient();
+      cleanup().catch((e) => console.warn("SSE cleanup error:", e.message));
     }
   };
 
-  // Remove client when connection closes
-  const removeClient = () => {
-    activeLiveTickClients.delete(sendTick);
-    res.end();
-  };
+  activeLiveTickClients.add(sendTick);
 
-  req.on('close', removeClient);
+  async function syncSymbols() {
+    try {
+      const openTrades = await PaperTrade.find({ status: "OPEN" }).select("symbol").lean();
+      const latest = new Set(openTrades.map((t) => t.symbol).filter(Boolean));
 
-  // Get user's active trade symbols and subscribe to them
-  try {
-    const activeTrades = await PaperTrade.find({
-      userId: userId,
-      status: 'OPEN'
-    }).select('symbol').lean();
+      const toAdd = [];
+      const toRemove = [];
 
-    const symbols = activeTrades.map(t => t.symbol);
-    
-    if (symbols.length > 0) {
-      const marketSocket = getMarketSocketInstance();
-      if (marketSocket) {
-        // Subscribe to active trade symbols
-        marketSocket.subscribe(symbols, `sse-${userId}`);
-        
-        // Send ticks for subscribed symbols
-        const handleTick = (tick) => {
-          if (symbols.includes(tick.symbol)) {
-            sendTick({
-              symbol: tick.symbol,
-              ltp: tick.ltp,
-              ts: tick.ts,
-              source: 'live'
-            });
-          }
-        };
+      latest.forEach((sym) => {
+        if (!trackedSymbols.has(sym)) toAdd.push(sym);
+      });
+      trackedSymbols.forEach((sym) => {
+        if (!latest.has(sym)) toRemove.push(sym);
+      });
 
-        marketSocket.on('tick', handleTick);
+      if (toAdd.length) await marketSocket.subscribe(toAdd, ownerId);
+      if (toRemove.length) await marketSocket.unsubscribe(toRemove, ownerId);
 
-        // Cleanup listener on disconnect
-        req.on('close', () => {
-          marketSocket.removeListener('tick', handleTick);
-          marketSocket.unsubscribe(symbols, `sse-${userId}`);
-        });
-      }
+      trackedSymbols = latest;
+    } catch (err) {
+      console.warn("Failed to sync live tick symbols:", err.message);
     }
-  } catch (err) {
-    console.warn("Failed to setup market socket for live ticks:", err);
   }
 
+  await syncSymbols();
+  syncTimer = setInterval(syncSymbols, 5000);
+
+  const handleTick = (tick) => {
+    if (!trackedSymbols.has(tick.symbol)) return;
+    sendTick({
+      symbol: tick.symbol,
+      ltp: tick.ltp,
+      ts: tick.ts,
+      source: 'live'
+    });
+  };
+
+  marketSocket.on('tick', handleTick);
+
+  req.on('close', () => {
+    cleanup().catch((err) => console.warn("SSE cleanup error:", err.message));
+  });
+
   // Send heartbeat every 30s to keep connection alive
-  const heartbeat = setInterval(() => {
+  heartbeat = setInterval(() => {
     try {
       res.write(": heartbeat\n\n");
     } catch (err) {
-      clearInterval(heartbeat);
-      removeClient();
+      cleanup().catch((e) => console.warn("SSE cleanup error:", e.message));
     }
   }, 30000);
-
-  req.on('close', () => clearInterval(heartbeat));
 });
 
 // ------------------------------

@@ -3,6 +3,8 @@ const express = require("express");
 const router = express.Router();
 const authRequired = require("../middlewares/authRequired");
 const PaperTrade = require("../models/PaperTrade");
+const { DateTime } = require("luxon");
+const { IST } = require("../utils/time");
 
 const m2Service = require("../services/m2.service");
 const tradeEngine = require("../services/tradeEngine.service");
@@ -71,7 +73,16 @@ router.get("/signals", authRequired, async (req, res, next) => {
 router.get("/trades", authRequired, async (req, res, next) => {
   try {
     const userId = String(req.user?._id || "");
-    const trades = await PaperTrade.find({ userId }).sort({ entryTime: -1 }).lean();
+    const now = DateTime.now().setZone(IST);
+    const startUTC = now.startOf("day").toUTC().toJSDate();
+    const endUTC = now.endOf("day").toUTC().toJSDate();
+
+    const trades = await PaperTrade.find({
+      userId,
+      entryTime: { $gte: startUTC, $lte: endUTC }
+    })
+      .sort({ entryTime: -1 })
+      .lean();
     res.json({ ok: true, trades });
   } catch (err) {
     next(err);
@@ -81,7 +92,8 @@ router.get("/trades", authRequired, async (req, res, next) => {
 // Today's performance (PnL summary)
 router.get("/report-today", authRequired, async (req, res, next) => {
   try {
-    const result = await reportService.buildDailyReport();
+    const userId = String(req.user?._id || "");
+    const result = await reportService.buildDailyReport({ userId });
     res.json(result);
   } catch (err) {
     next(err);

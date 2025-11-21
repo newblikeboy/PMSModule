@@ -20,6 +20,8 @@ const CONFIG = {
   MARKET_OPEN_M: 15,
   MARKET_CLOSE_H: 15,
   MARKET_CLOSE_M: 30,
+  M1_START_H: 10,
+  M1_START_M: 30,
   M1_FORCE_START_ALLOWED: true,
   STARTUP_CYCLE_MS: 15000,  // 15 sec
   TRADE_CYCLE_MS: 15000,    // 15 sec
@@ -38,7 +40,9 @@ let flags = {
   m2Started: false,
 
   tradeStarted: false,
-  enginesStopped: false
+  enginesStopped: false,
+
+  m1WindowLogged: false
 };
 
 // ---------------- TIME HELPERS ----------------
@@ -56,6 +60,15 @@ function isMarketOpen() {
   const open = CONFIG.MARKET_OPEN_H * 60 + CONFIG.MARKET_OPEN_M;
   const close = CONFIG.MARKET_CLOSE_H * 60 + CONFIG.MARKET_CLOSE_M;
   return current >= open && current <= close;
+}
+
+function isM1StartWindow() {
+  if (!isMarketDay()) return false;
+  const n = nowIST();
+  const current = n.hour * 60 + n.minute;
+  const start = CONFIG.M1_START_H * 60 + CONFIG.M1_START_M;
+  const close = CONFIG.MARKET_CLOSE_H * 60 + CONFIG.MARKET_CLOSE_M;
+  return current >= start && current <= close;
 }
 
 function isAfterCutoff() {
@@ -81,7 +94,9 @@ function resetDailyFlags() {
       m2Started: false,
 
       tradeStarted: false,
-      enginesStopped: false
+      enginesStopped: false,
+
+      m1WindowLogged: false
     };
 
     console.log("[SCHED] New Market Day — Flags Reset");
@@ -98,6 +113,16 @@ async function startMarketSocket() {
 // ---------------- START M1 ----------------
 async function startM1() {
   if (flags.m1Started || flags.m1Starting) return;
+
+  if (!isM1StartWindow()) {
+    if (!flags.m1WindowLogged) {
+      const minute = String(CONFIG.M1_START_M).padStart(2, "0");
+      console.log(`[SCHED] Waiting for ${CONFIG.M1_START_H}:${minute} IST to start M1...`);
+      flags.m1WindowLogged = true;
+    }
+    return;
+  }
+
   flags.m1Starting = true;
 
   try {

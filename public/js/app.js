@@ -58,14 +58,17 @@
     });
   };
 
-  const showView = (viewId) => {
+  const showView = (viewId, opts = {}) => {
     views.forEach((view) => {
       const isActive = view.id === viewId;
       view.classList.toggle("active", isActive);
     });
     setActiveNav(viewId);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (!opts.skipScroll) window.scrollTo({ top: 0, behavior: "smooth" });
     if (!isDesktop()) closeSidebar();
+    try {
+      localStorage.setItem("app_active_view", viewId);
+    } catch {}
   };
 
   navButtons.forEach((btn) => {
@@ -75,7 +78,12 @@
     });
   });
 
-  showView("overviewView");
+  const storedView = localStorage.getItem("app_active_view");
+  if (storedView && views.some((v) => v.id === storedView)) {
+    showView(storedView, { skipScroll: true });
+  } else {
+    showView("overviewView", { skipScroll: true });
+  }
 
   // ----------------------------------------
   // Profile dropdown & header actions
@@ -799,27 +807,24 @@
 
     tableBody.innerHTML = "";
     if (!resp || !resp.ok) {
-      tableBody.innerHTML = `<tr><td colspan="5">No data / error</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="3">No data / error</td></tr>`;
       return;
     }
 
-    const signals = resp.data || [];
+    const signals = resp.signals || resp.data || [];
     if (!signals.length) {
-      tableBody.innerHTML = `<tr><td colspan="5">No signals available</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="3">No signals available</td></tr>`;
       return;
     }
 
     signals.forEach((row) => {
-      const entry = Number(row.ltp || 0);
-      const target = entry * 1.015;
-      const stop = entry * 0.9925;
       const tr = document.createElement("tr");
+      const inZone = row.inEntryZone ? "RSI 40-50" : "Watching";
+      const rsiValue = Number(row.rsi ?? 0).toFixed(2);
       tr.innerHTML = `
         <td>${row.symbol}</td>
-        <td>${formatCurrency(entry)}</td>
-        <td>${formatCurrency(target)}</td>
-        <td>${formatCurrency(stop)}</td>
-        <td><button class="app-act-btn" disabled></button></td>
+        <td>${inZone}</td>
+        <td>${rsiValue}</td>
       `;
       tableBody.appendChild(tr);
     });
@@ -842,7 +847,12 @@
 
     const s = rep.summary || {};
     closedEl && (closedEl.textContent = s.closedTrades ?? 0);
-    wlEl && (wlEl.textContent = `${s.wins ?? 0} / ${s.losses ?? 0}`);
+    if (wlEl) {
+      const wins = s.wins ?? 0;
+      const losses = s.losses ?? 0;
+      const manual = s.selfClosed ?? 0;
+      wlEl.textContent = `${wins} / ${losses} / ${manual}`;
+    }
 
     if (pnlEl) {
       const pnl = Number(s.grossPnLAbs ?? 0);
@@ -860,72 +870,96 @@
   }
 
   async function loadTrades() {
-    const result = await jgetAuth("/trade/all");
     const tableBody = $("#tradesTableBody");
     if (!tableBody) return;
 
-    tableBody.innerHTML = "";
-    if (!result || !result.ok) {
-      tableBody.innerHTML = `<tr><td colspan="8">No data / error</td></tr>`;
-      return;
-    }
+    tableBody.innerHTML = `<tr><td colspan="8">Loading...</td></tr>`;
 
-    const trades = result.trades || [];
-    if (!trades.length) {
-      tableBody.innerHTML = `<tr><td colspan="8">No trades yet</td></tr>`;
-      return;
-    }
-
-    // Get live P&L data for open trades
-    let livePnL = { open: [], totals: {} };
     try {
-      const pnlResult = await jgetAuth("/trade/live-pnl");
-      if (pnlResult && pnlResult.ok) {
-        livePnL = pnlResult;
+      const [result, liveSnapshot] = await Promise.all([
+        jgetAuth("/user/trades"),
+        jgetAuth("/trade/live-pnl")
+      ]);
+
+      if (!result || !result.ok) {
+        tableBody.innerHTML = `<tr><td colspan="8">${result?.error || "No data / error"}</td></tr>`;
+        return;
       }
+
+      const trades = result.trades || [];
+      if (!trades.length) {
+        tableBody.innerHTML = `<tr><td colspan="8">No trades yet</td></tr>`;
+        liveTradeCache = {};
+        return;
+      }
+
+      // Map of tradeId -> live data
+      const pnlMap = new Map();
+      if (liveSnapshot && liveSnapshot.ok) {
+        if (Array.isArray(liveSnapshot.open)) {
+          liveSnapshot.open.forEach((trade) => pnlMap.set(String(trade._id), trade));
+        } else if (Array.isArray(liveSnapshot.results)) {
+          liveSnapshot.results.forEach((group) => {
+            (group.open || []).forEach((trade) => pnlMap.set(String(trade._id), trade));
+          });
+        }
+      }
+
+      tableBody.innerHTML = "";
+
+      trades.forEach((trade) => {
+        const tr = document.createElement("tr");
+        const qty = trade.qty || trade.quantity || 1;
+        const isOpen = trade.status === "OPEN";
+        const liveData = pnlMap.get(String(trade._id));
+
+        const currentPrice = isOpen
+          ? (liveData?.ltp ?? trade.currentPrice ?? trade.entryPrice)
+          : (trade.exitPrice ?? trade.entryPrice);
+
+        const rawPnLAbs = isOpen
+          ? (liveData?.pnlAbs ?? (currentPrice - trade.entryPrice) * qty)
+          : (trade.pnlAbs ?? 0);
+
+        const rawPnLPct = isOpen
+          ? (liveData?.pnlPct ?? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100)
+          : (trade.pnlPct ?? 0);
+
+        const pnlAbs = Number(rawPnLAbs?.toFixed?.(2) ?? rawPnLAbs ?? 0);
+        const pnlPct = Number(rawPnLPct?.toFixed?.(2) ?? rawPnLPct ?? 0);
+        const isProfit = pnlAbs >= 0;
+
+        const actionButton = isOpen
+          ? `<button class="app-btn small danger" onclick="closeTrade('${trade._id}')">Close</button>`
+          : `<span class="status-pill">Closed</span>`;
+
+        tr.innerHTML = `
+          <td>${trade.symbol}</td>
+          <td>${qty}</td>
+          <td>${formatCurrency(trade.entryPrice)}</td>
+          <td>${formatCurrency(currentPrice)}</td>
+          <td>${formatCurrency(trade.targetPrice)}</td>
+          <td>${formatCurrency(trade.stopPrice)}</td>
+          <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">
+            ${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)
+          </td>
+          <td>${actionButton}</td>
+        `;
+
+        tr.className = isOpen ? "status-open" : "status-closed";
+        tr.setAttribute("data-tradeid", trade._id);
+        tr.setAttribute("data-symbol", trade.symbol);
+        tr.setAttribute("data-entry", trade.entryPrice);
+        tr.setAttribute("data-qty", qty);
+
+        tableBody.appendChild(tr);
+      });
+
+      initLiveTradeCache();
     } catch (err) {
-      console.warn("Failed to load live P&L:", err);
+      console.error("Failed to load trades:", err);
+      tableBody.innerHTML = `<tr><td colspan="8">Failed to load trades</td></tr>`;
     }
-
-    // Create a map for quick P&L lookup
-    const pnlMap = {};
-    (livePnL.open || []).forEach(trade => {
-      pnlMap[trade._id] = trade;
-    });
-
-    trades.forEach((trade) => {
-      const tr = document.createElement("tr");
-      // Attach trade id to row for reliable updates
-      try { tr.setAttribute('data-tradeid', trade._id); } catch(e) {}
-      const liveData = pnlMap[trade._id] || {};
-      const currentPrice = liveData.ltp || trade.entryPrice;
-      const pnlAbs = liveData.pnlAbs || 0;
-      const pnlPct = liveData.pnlPct || 0;
-      const isProfit = pnlAbs >= 0;
-      
-      const statusClass = trade.status === 'CLOSED' ? 'status-closed' : 'status-open';
-      const actionButton = trade.status === 'OPEN'
-        ? `<button class="app-btn small danger" onclick="closeTrade('${trade._id}')">Close</button>`
-        : '--';
-      
-      tr.innerHTML = `
-        <td>${trade.symbol}</td>
-        <td>${trade.qty || trade.quantity || "--"}</td>
-        <td>${formatCurrency(trade.entryPrice)}</td>
-        <td>${formatCurrency(currentPrice)}</td>
-        <td>${formatCurrency(trade.targetPrice)}</td>
-        <td>${formatCurrency(trade.stopPrice)}</td>
-        <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">
-          ${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)
-        </td>
-        <td>${actionButton}</td>
-      `;
-      tr.className = statusClass;
-      tableBody.appendChild(tr);
-    });
-
-    // Reinitialize live trade cache for real-time P&L updates
-    initLiveTradeCache();
   }
 
   // ----------------------------------------
@@ -1039,62 +1073,51 @@
   let liveTradeCache = {}; // symbol -> { entryPrice, qty, _id, targetPrice, stopPrice, broker }
   
   function initLiveTradeCache() {
-    // Build cache from current trades table for instant P&L calculation
     const tableBody = $("#tradesTableBody");
     if (!tableBody) return;
-    
-    const rows = tableBody.querySelectorAll('tr[data-tradeid]');
+
     liveTradeCache = {};
-    
-    rows.forEach(row => {
-      const tradeId = row.getAttribute('data-tradeid');
-      const cells = row.querySelectorAll('td');
-      if (cells.length >= 4) {
-        const symbol = cells[0].textContent.trim();
-        const qty = Number(cells[1].textContent.trim()) || 1;
-        const entryPrice = parseFloat(cells[2].textContent.replace(/[^0-9.-]/g, '')) || 0;
-        if (symbol && tradeId) {
-          liveTradeCache[symbol] = {
-            entryPrice,
-            qty,
-            _id: tradeId,
-            currentPrice: entryPrice,
-            targetPrice: null,
-            stopPrice: null,
-            broker: null
-          };
-        }
-      }
+    const rows = tableBody.querySelectorAll('tr[data-tradeid]');
+
+    rows.forEach((row) => {
+      if (row.classList.contains("status-closed")) return;
+
+      const symbol = row.getAttribute("data-symbol");
+      const tradeId = row.getAttribute("data-tradeid");
+      if (!symbol || !tradeId) return;
+
+      const entryPrice = Number(row.getAttribute("data-entry") || 0);
+      const qty = Number(row.getAttribute("data-qty") || 1);
+
+      if (!liveTradeCache[symbol]) liveTradeCache[symbol] = [];
+      liveTradeCache[symbol].push({
+        tradeId,
+        row,
+        entryPrice,
+        qty
+      });
     });
   }
   
   function updatePnLForSymbol(symbol, currentPrice) {
-    if (!liveTradeCache[symbol] || !currentPrice) return;
-    
-    const trade = liveTradeCache[symbol];
-    const pnlAbs = (currentPrice - trade.entryPrice) * trade.qty;
-    const pnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
-    
-    // Update cache
-    trade.currentPrice = currentPrice;
-    
-    // Find and update the row immediately
-    const tableBody = $("#tradesTableBody");
-    if (!tableBody) return;
-    
-    const row = tableBody.querySelector(`tr[data-tradeid="${trade._id}"]`);
-    if (!row) return;
-    
-    const cells = row.querySelectorAll('td');
-    if (cells.length >= 7) {
-      // Update current price (cell 3)
-      cells[3].textContent = formatCurrency(currentPrice);
-      
-      // Update P&L (cell 6) with live P&L
-      const pnlCell = cells[6];
-      pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
-      pnlCell.className = pnlAbs >= 0 ? 'pnl-positive' : 'pnl-negative';
-    }
+    if (!currentPrice) return;
+    const trades = liveTradeCache[symbol];
+    if (!trades || !trades.length) return;
+
+    trades.forEach((trade) => {
+      const pnlAbs = (currentPrice - trade.entryPrice) * trade.qty;
+      const pnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+
+      const row = trade.row;
+      if (!row) return;
+      const cells = row.querySelectorAll("td");
+      if (cells.length >= 7) {
+        cells[3].textContent = formatCurrency(currentPrice);
+        const pnlCell = cells[6];
+        pnlCell.textContent = `${formatCurrency(pnlAbs)} (${pnlPct.toFixed(2)}%)`;
+        pnlCell.className = pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
+      }
+    });
   }
   
   function startLiveTickStream() {

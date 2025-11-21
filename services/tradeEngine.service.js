@@ -1,19 +1,5 @@
-// services/tradeEngine.service.js – FINAL PRODUCTION-GRADE VERSION
+// services/tradeEngine.service.js — CENTRALIZED QUEUED TRADE ENGINE
 "use strict";
-
-/**
- * FINAL TRADE ENGINE (ENTRY + EXIT + REAL-TIME PNL)
- * -------------------------------------------------
- * ✓ One-trade-per-user guaranteed
- * ✓ Hard lock with auto-timeout
- * ✓ Fresh M2 signal only (max age 60s)
- * ✓ Fast LTP fetch using marketSocket cache + batched API fallback
- * ✓ Paper + Live modes
- * ✓ Live order retry (Angel API)
- * ✓ Safe exit engine
- * ✓ Admin dashboard PnL with batching
- * ✓ User-level & global-level PnL
- */
 
 const { DateTime } = require("luxon");
 const PaperTrade = require("../models/PaperTrade");
@@ -32,12 +18,30 @@ const CFG = {
   IST: "Asia/Kolkata",
   CUT_H: 14,
   CUT_M: 45,
-  SIGNAL_MAX_AGE_MS: 60 * 1000, // Only fresh M2 signals
+  EXIT_CUT_H: 15,   // hard exit 15:20 IST
+  EXIT_CUT_M: 20,
   TARGET_PCT: Number(process.env.TARGET_PCT) || 1.5,
   STOP_PCT: Number(process.env.STOP_PCT) || 0.75,
-  BULK_MAX_USERS: Number(process.env.ENGINE_BULK_MAX_USERS) || 50,
-  LOCK_TIMEOUT_MS: 15000, // auto-unlock after 15s
+  LOCK_TIMEOUT_MS: 15000,
+  SIGNAL_STALE_MS: 30 * 60 * 1000,   // 30 minutes
+  TICK_THROTTLE_MS: 300,
 };
+
+const SIGNAL_QUERY = {
+  inEntryZone: true,
+  $or: [{ consumedAt: null }, { consumedAt: { $exists: false } }],
+};
+
+// ------------------------------------------------------------
+// GLOBAL STATE
+// ------------------------------------------------------------
+let activeSignal = null;
+let currentTradeSymbol = null;
+let tradeTickHandler = null;
+let tickProcessing = false;
+let lastTickRun = 0;
+let tradeSubscriptionSymbol = null;
+let autoRunTimer = null;
 
 // ------------------------------------------------------------
 // UTILS
@@ -53,8 +57,13 @@ function isAfterCutoff() {
   return n.hour > CFG.CUT_H || (n.hour === CFG.CUT_H && n.minute >= CFG.CUT_M);
 }
 
+function isExitCutoff() {
+  const n = nowIST();
+  return n.hour > CFG.EXIT_CUT_H || (n.hour === CFG.EXIT_CUT_H && n.minute >= CFG.EXIT_CUT_M);
+}
+
 // ------------------------------------------------------------
-// LTP FETCH — ULTRA FAST: SOCKET CACHE → API FALLBACK
+// LTP HELPERS
 // ------------------------------------------------------------
 async function fetchBatchLTP(symbols = []) {
   if (!symbols.length) return {};
@@ -74,39 +83,42 @@ async function fetchBatchLTP(symbols = []) {
 
 async function getOptimizedLTPMap(symbols) {
   const out = {};
-  const needAPI = [];
+  const fallback = [];
 
   for (const s of symbols) {
     const tick = marketSocket.getLastTick(s);
     if (tick && num(tick.ltp)) {
       out[s] = tick.ltp;
     } else {
-      needAPI.push(s);
+      fallback.push(s);
     }
   }
 
-  if (needAPI.length) {
+  if (fallback.length) {
     try {
-      const api = await fetchBatchLTP(needAPI);
-      Object.assign(out, api);
+      const viaApi = await fetchBatchLTP(fallback);
+      Object.assign(out, viaApi);
     } catch (err) {
-      console.warn("[PNL] Fallback LTP failed:", err.message);
+      console.warn("[TradeEngine] Fallback LTP failed:", err.message);
     }
   }
 
   return out;
 }
 
+async function fetchEntryPrice(symbol) {
+  const map = await getOptimizedLTPMap([symbol]);
+  return map[symbol];
+}
+
 // ------------------------------------------------------------
-// LOCK SYSTEM — Hard lock + Auto-unlock
+// LOCK SYSTEM — per-user guard
 // ------------------------------------------------------------
-const _locks = new Map(); // userId → timestamp
+const _locks = new Map();
 
 function isLocked(uid) {
   const ts = _locks.get(uid);
   if (!ts) return false;
-
-  // auto-expire lock
   if (Date.now() - ts > CFG.LOCK_TIMEOUT_MS) {
     _locks.delete(uid);
     return false;
@@ -123,22 +135,20 @@ function unlock(uid) {
 }
 
 // ------------------------------------------------------------
-// TRADE MODE DECISION
+// TRADE MODE + QTY
 // ------------------------------------------------------------
 function decideTradeMode(user, globalSettings) {
   if (globalSettings.marketHalt) return "off";
-  if (!user.tradingEngineEnabled) return "paper";
 
-  const userLiveOK = !!user.angelLiveEnabled;
+  const allowPaper = globalSettings.isPaperTradingActive !== false;
+  const wantsLive = !!user.autoTradingEnabled;
+  const userLiveOK = wantsLive && !!user.angelLiveEnabled;
   const globalLiveOK = !!globalSettings.isLiveExecutionAllowed;
 
   if (userLiveOK && globalLiveOK) return "live";
-  return "paper";
+  return allowPaper ? "paper" : "off";
 }
 
-// ------------------------------------------------------------
-// QUANTITY CALCULATION
-// ------------------------------------------------------------
 async function computeLiveQty(user, entryPrice) {
   const allowed = Number(user.angelAllowedMarginPct ?? 0.5);
   try {
@@ -151,77 +161,289 @@ async function computeLiveQty(user, entryPrice) {
   }
 }
 
+async function hasOpenTrades() {
+  return !!(await PaperTrade.exists({ status: "OPEN" }));
+}
+
+// ------------------------------------------------------------
+// SIGNAL MANAGEMENT
+// ------------------------------------------------------------
+async function restoreSignalFromOpenTrades() {
+  const open = await PaperTrade.findOne({ status: "OPEN" }).lean();
+  if (open && open.signalId) {
+    const sig = await M2Signal.findById(open.signalId).lean();
+    if (sig) {
+      activeSignal = sig;
+      currentTradeSymbol = sig.symbol;
+      return sig;
+    }
+  }
+  return null;
+}
+
+function isSignalStale(signal) {
+  const ts = new Date(signal.capturedAt || signal.updatedAt || Date.now()).getTime();
+  return Date.now() - ts > CFG.SIGNAL_STALE_MS;
+}
+
+async function getActiveSignal() {
+  if (activeSignal) {
+    if (isSignalStale(activeSignal)) {
+      await consumeActiveSignal("stale");
+      return null;
+    }
+    return activeSignal;
+  }
+  const restored = await restoreSignalFromOpenTrades();
+  if (restored) {
+    await ensureTradeSubscription(restored.symbol);
+    ensureTradeTickListener();
+    return restored;
+  }
+  return null;
+}
+
+async function fetchNextSignal() {
+  const sig = await M2Signal.findOne(SIGNAL_QUERY).sort({ capturedAt: 1, updatedAt: 1 }).lean();
+  if (!sig) return null;
+
+  if (isSignalStale(sig)) {
+    await M2Signal.findByIdAndUpdate(sig._id, {
+      $set: { consumedAt: new Date(), inEntryZone: false, updatedAt: new Date() },
+    });
+    return fetchNextSignal();
+  }
+
+  activeSignal = sig;
+  return sig;
+}
+
+async function ensureSignalForEntry() {
+  const existing = await getActiveSignal();
+  if (existing) return existing;
+  return fetchNextSignal();
+}
+
+async function consumeActiveSignal(reason = "completed") {
+  if (!activeSignal) {
+    await ensureTradeSubscription(null);
+    detachTradeTickListener();
+    return;
+  }
+
+  try {
+    await M2Signal.findByIdAndUpdate(
+      activeSignal._id,
+      {
+        $set: {
+          consumedAt: new Date(),
+          inEntryZone: false,
+          updatedAt: new Date(),
+          consumeReason: reason,
+        },
+      },
+      { new: false }
+    );
+  } catch (err) {
+    console.warn("[TradeEngine] consumeActiveSignal:", err.message);
+  }
+
+  activeSignal = null;
+  currentTradeSymbol = null;
+  await ensureTradeSubscription(null);
+  detachTradeTickListener();
+}
+
+function scheduleNextAutoRun(delay = 1000) {
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  autoRunTimer = setTimeout(() => {
+    autoRunTimer = null;
+    autoEnterOnSignal()
+      .catch((err) => console.error("[TradeEngine] auto run error:", err.message));
+  }, delay);
+}
+
+// ------------------------------------------------------------
+// MARKET SOCKET SUBSCRIPTIONS
+// ------------------------------------------------------------
+async function ensureTradeSubscription(symbol) {
+  try {
+    if (tradeSubscriptionSymbol && tradeSubscriptionSymbol !== symbol) {
+      await marketSocket.unsubscribe([tradeSubscriptionSymbol], "trade-engine");
+      tradeSubscriptionSymbol = null;
+    }
+
+    if (symbol && tradeSubscriptionSymbol !== symbol) {
+      await marketSocket.subscribe([symbol], "trade-engine");
+      tradeSubscriptionSymbol = symbol;
+    } else if (!symbol) {
+      tradeSubscriptionSymbol = null;
+    }
+  } catch (err) {
+    console.warn("[TradeEngine] socket subscription error:", err.message);
+  }
+}
+
+function ensureTradeTickListener() {
+  if (tradeTickHandler) return;
+  tradeTickHandler = (tick) => {
+    handleTradeTick(tick).catch((err) =>
+      console.warn("[TradeEngine] tick handler error:", err.message)
+    );
+  };
+  marketSocket.on("tick", tradeTickHandler);
+}
+
+function detachTradeTickListener() {
+  if (!tradeTickHandler) return;
+  marketSocket.off("tick", tradeTickHandler);
+  tradeTickHandler = null;
+}
+
+async function handleTradeTick(tick) {
+  if (!currentTradeSymbol || tick.symbol !== currentTradeSymbol) return;
+  const ltp = num(tick.ltp);
+  if (!ltp) return;
+
+  const now = Date.now();
+  if (now - lastTickRun < CFG.TICK_THROTTLE_MS) return;
+  lastTickRun = now;
+
+  if (tickProcessing) return;
+  tickProcessing = true;
+  try {
+    await processTradeTick(tick.symbol, ltp);
+  } finally {
+    tickProcessing = false;
+  }
+}
+
+async function processTradeTick(symbol, ltp) {
+  const openTrades = await PaperTrade.find({ symbol, status: "OPEN" });
+  if (!openTrades.length) {
+    await handleTradesCompletionIfAny();
+    return;
+  }
+
+  const isCutoffExit = isExitCutoff();
+  const stayers = [];
+  const closers = [];
+
+  for (const trade of openTrades) {
+    const pnlAbs = (ltp - trade.entryPrice) * trade.qty;
+    const pnlPct = (pnlAbs / trade.entryPrice) * 100;
+
+    let reason = null;
+    if (isCutoffExit) reason = "CUTOFF";
+    else if (ltp >= trade.targetPrice) reason = "TARGET";
+    else if (ltp <= trade.stopPrice) reason = "STOPLOSS";
+
+    if (reason) {
+      closers.push({ tradeId: trade._id, pnlAbs, pnlPct, reason });
+    } else {
+      stayers.push({
+        updateOne: {
+          filter: { _id: trade._id, status: "OPEN" },
+          update: {
+            $set: {
+              pnlAbs: Number(pnlAbs.toFixed(2)),
+              pnlPct: Number(pnlPct.toFixed(2)),
+              updatedAt: new Date(),
+            },
+          },
+        },
+      });
+    }
+  }
+
+  if (stayers.length) {
+    await PaperTrade.bulkWrite(stayers, { ordered: false });
+  }
+
+  if (closers.length) {
+    const closeOps = closers.map((c) => ({
+      updateOne: {
+        filter: { _id: c.tradeId, status: "OPEN" },
+        update: {
+          $set: {
+            exitPrice: ltp,
+            exitTime: new Date(),
+            pnlAbs: Number(c.pnlAbs.toFixed(2)),
+            pnlPct: Number(c.pnlPct.toFixed(2)),
+            notes: c.reason,
+            status: "CLOSED",
+            updatedAt: new Date(),
+          },
+        },
+      },
+    }));
+    await PaperTrade.bulkWrite(closeOps, { ordered: false });
+    await handleTradesCompletionIfAny();
+  }
+}
+
+async function handleTradesCompletionIfAny() {
+  const remaining = await PaperTrade.countDocuments({ status: "OPEN" });
+  if (remaining === 0) {
+    await consumeActiveSignal();
+    scheduleNextAutoRun(1000);
+  }
+}
+
 // ------------------------------------------------------------
 // ENTRY ENGINE
 // ------------------------------------------------------------
-async function tryEnterTrade(user) {
-  const settings = getSettings();
-
+async function tryEnterTrade(user, signal, entryPrice, settings) {
   if (isAfterCutoff()) return { ok: true, msg: "cutoff passed" };
 
   const mode = decideTradeMode(user, settings);
   if (mode === "off") return { ok: true, msg: "engine disabled" };
 
-  // 1. Must have NO open trade
-  const open = await PaperTrade.findOne({ userId: user._id, status: "OPEN" });
-  if (open) return { ok: true, msg: "user already has open trade" };
+  const existing = await PaperTrade.findOne({ userId: user._id, status: "OPEN" });
+  if (existing) return { ok: true, msg: "user already has open trade" };
 
-  // 2. Latest M2 signal
-  const sig = await M2Signal.findOne({ inEntryZone: true }).sort({ updatedAt: -1 });
-  if (!sig) return { ok: true, msg: "no active signal" };
-
-  // 3. Signal freshness check
-  const age = Date.now() - new Date(sig.updatedAt).getTime();
-  if (age > CFG.SIGNAL_MAX_AGE_MS) return { ok: true, msg: "signal too old" };
-
-  // 4. LTP
-  const ltp = await getOptimizedLTPMap([sig.symbol]).then((m) => m[sig.symbol]);
-  if (!ltp) return { ok: false, error: "LTP unavailable" };
-
-  // 5. Quantity
   let qty = 1;
   if (mode === "live") {
-    qty = await computeLiveQty(user, ltp);
+    qty = await computeLiveQty(user, entryPrice);
     if (qty < 1) return { ok: false, error: "insufficient margin" };
   }
 
-  // 6. Prepare trade document
   const base = {
     userId: user._id,
-    symbol: sig.symbol,
+    signalId: signal._id,
+    signalCapturedAt: signal.capturedAt || signal.updatedAt || new Date(),
+    symbol: signal.symbol,
     qty,
-    entryPrice: ltp,
-    targetPrice: ltp * (1 + CFG.TARGET_PCT / 100),
-    stopPrice: ltp * (1 - CFG.STOP_PCT / 100),
+    entryPrice,
+    targetPrice: Number((entryPrice * (1 + CFG.TARGET_PCT / 100)).toFixed(2)),
+    stopPrice: Number((entryPrice * (1 - CFG.STOP_PCT / 100)).toFixed(2)),
     entryTime: new Date(),
     tradeMode: mode,
-    rsiAtEntry: sig.rsi,
+    rsiAtEntry: signal.rsi,
     status: "OPEN",
   };
 
-  // 7. PAPER TRADE
   if (mode === "paper") {
-    const t = await PaperTrade.create(base);
-    return { ok: true, trade: t };
+    const doc = await PaperTrade.create(base);
+    return { ok: true, trade: doc };
   }
 
-  // 8. LIVE TRADE + RETRY
-  const token = await resolveToken(sig.symbol);
+  const token = await resolveToken(signal.symbol);
   if (!token) return { ok: false, error: "symboltoken missing" };
 
   let placed = await angelTrade.placeMarketOrder({
     userId: user._id,
-    symbol: sig.symbol,
+    symbol: signal.symbol,
     symboltoken: token,
     qty,
     side: "BUY",
   });
 
   if (!placed?.ok) {
-    console.warn("[TradeEngine] Live buy failed. Retrying...");
+    console.warn("[TradeEngine] Live buy failed, retrying once...");
     placed = await angelTrade.placeMarketOrder({
       userId: user._id,
-      symbol: sig.symbol,
+      symbol: signal.symbol,
       symboltoken: token,
       qty,
       side: "BUY",
@@ -229,7 +451,7 @@ async function tryEnterTrade(user) {
   }
 
   if (!placed?.ok) {
-    return { ok: false, error: placed.error || "live order failed" };
+    return { ok: false, error: placed?.error || "live order failed" };
   }
 
   const liveDoc = await PaperTrade.create({
@@ -241,71 +463,48 @@ async function tryEnterTrade(user) {
   return { ok: true, trade: liveDoc };
 }
 
-// ------------------------------------------------------------
-// EXIT ENGINE
-// ------------------------------------------------------------
-async function tryExitTradesForUser(userId) {
-  const open = await PaperTrade.find({ userId, status: "OPEN" }).lean();
-  if (!open.length) return { ok: true, closed: [] };
+async function autoEnterOnSignal(userId = null) {
+  if (isAfterCutoff()) return { ok: true, msg: "cutoff passed" };
 
-  const symbols = [...new Set(open.map((x) => x.symbol))];
-  const ltpMap = await getOptimizedLTPMap(symbols);
-
-  const closed = [];
-
-  for (const t of open) {
-    const ltp = num(ltpMap[t.symbol]);
-    if (!ltp) continue;
-
-    let reason = "";
-    if (ltp >= t.targetPrice) reason = "TARGET";
-    if (ltp <= t.stopPrice) reason = "STOPLOSS";
-    if (!reason) continue;
-
-    const exitPrice = ltp;
-    const pnlAbs = (exitPrice - t.entryPrice) * t.qty;
-    const pnlPct = (pnlAbs / t.entryPrice) * 100;
-
-    await PaperTrade.findByIdAndUpdate(t._id, {
-      exitPrice,
-      exitTime: new Date(),
-      pnlAbs,
-      pnlPct,
-      notes: reason,
-      status: "CLOSED",
-    });
-
-    closed.push({ ...t, exitPrice, pnlAbs, pnlPct, reason });
+  const tradeRunning = await hasOpenTrades();
+  if (tradeRunning) {
+    ensureTradeTickListener();
+    await ensureTradeSubscription(currentTradeSymbol);
+    return { ok: true, msg: "trade already active" };
   }
 
-  return { ok: true, closed };
-}
+  const signal = await ensureSignalForEntry();
+  if (!signal) return { ok: true, msg: "no pending signals" };
 
-// ------------------------------------------------------------
-// PUBLIC — AUTO ENTRY ON SIGNAL
-// ------------------------------------------------------------
-async function autoEnterOnSignal(userId = null) {
-  // SINGLE USER
+  const entryPrice = await fetchEntryPrice(signal.symbol);
+  if (!entryPrice) return { ok: false, error: "LTP unavailable" };
+
+  currentTradeSymbol = signal.symbol;
+  await ensureTradeSubscription(signal.symbol);
+  ensureTradeTickListener();
+
+  const settings = getSettings();
+
   if (userId) {
     const uid = String(userId);
     if (isLocked(uid)) return { ok: true, msg: "locked" };
 
     lock(uid);
     try {
-      const user = await User.findById(uid);
+      const user = await User.findById(uid).lean();
       if (!user) return { ok: false, error: "user not found" };
-      return await tryEnterTrade(user);
+      const result = await tryEnterTrade(user, signal, entryPrice, settings);
+      return { ...result, signal: signal.symbol };
     } finally {
       unlock(uid);
     }
   }
 
-  // BULK MODE
-  const users = await User.find().limit(CFG.BULK_MAX_USERS).lean();
+  const users = await User.find().lean();
   const out = [];
 
-  for (const u of users) {
-    const uid = String(u._id);
+  for (const user of users) {
+    const uid = String(user._id);
     if (isLocked(uid)) {
       out.push({ userId: uid, msg: "locked" });
       continue;
@@ -313,36 +512,85 @@ async function autoEnterOnSignal(userId = null) {
 
     lock(uid);
     try {
-      const user = await User.findById(uid);
-      const r = await tryEnterTrade(user);
-      out.push({ userId: uid, ...r });
-    } catch (e) {
-      out.push({ userId: uid, ok: false, error: e.message });
+      const res = await tryEnterTrade(user, signal, entryPrice, settings);
+      out.push({ userId: uid, ...res });
+    } catch (err) {
+      out.push({ userId: uid, ok: false, error: err.message });
     } finally {
       unlock(uid);
     }
   }
 
-  return { ok: true, results: out };
+  if (!out.some((r) => r.trade)) {
+    console.warn("[TradeEngine] Signal", signal.symbol, "produced no trades.");
+  }
+
+  return {
+    ok: true,
+    signal: { id: signal._id, symbol: signal.symbol, entryPrice },
+    results: out,
+  };
 }
 
 // ------------------------------------------------------------
-// PUBLIC — AUTO EXIT ENGINE
+// FALLBACK EXIT ENGINE
 // ------------------------------------------------------------
+async function tryExitTradesForUser(userId) {
+  const open = await PaperTrade.find({ userId, status: "OPEN" }).lean();
+  if (!open.length) return { ok: true, closed: [] };
+
+  const symbols = [...new Set(open.map((t) => t.symbol))];
+  const ltpMap = await getOptimizedLTPMap(symbols);
+
+  const closed = [];
+  const isCutoffExit = isExitCutoff();
+
+  for (const trade of open) {
+    const ltp = num(ltpMap[trade.symbol]);
+    if (!ltp) continue;
+
+    let reason = "";
+    if (isCutoffExit) reason = "CUTOFF";
+    else if (ltp >= trade.targetPrice) reason = "TARGET";
+    else if (ltp <= trade.stopPrice) reason = "STOPLOSS";
+
+    if (!reason) continue;
+
+    const pnlAbs = (ltp - trade.entryPrice) * trade.qty;
+    const pnlPct = (pnlAbs / trade.entryPrice) * 100;
+
+    await PaperTrade.findByIdAndUpdate(trade._id, {
+      $set: {
+        exitPrice: ltp,
+        exitTime: new Date(),
+        pnlAbs: Number(pnlAbs.toFixed(2)),
+        pnlPct: Number(pnlPct.toFixed(2)),
+        notes: reason,
+        status: "CLOSED",
+        updatedAt: new Date(),
+      },
+    });
+    closed.push({ ...trade, exitPrice: ltp, pnlAbs, pnlPct, reason });
+  }
+
+  if (closed.length) await handleTradesCompletionIfAny();
+  return { ok: true, closed };
+}
+
 async function checkOpenTradesAndUpdate(userId = null) {
-  if (userId) return await tryExitTradesForUser(userId);
+  if (userId) return tryExitTradesForUser(userId);
 
   const rows = await PaperTrade.aggregate([
     { $match: { status: "OPEN" } },
     { $group: { _id: "$userId" } },
-    { $limit: 200 },
+    { $limit: 500 },
   ]);
 
   const out = [];
-  for (const r of rows) {
-    const uid = String(r._id);
-    const res = await tryExitTradesForUser(uid);
-    out.push({ userId: uid, ...res });
+  for (const row of rows) {
+    const uid = String(row._id);
+    const result = await tryExitTradesForUser(uid);
+    out.push({ userId: uid, ...result });
   }
   return { ok: true, results: out };
 }
@@ -353,15 +601,10 @@ async function checkOpenTradesAndUpdate(userId = null) {
 async function getLivePnLSnapshot(userId = null) {
   const sod = new Date(new Date().setHours(0, 0, 0, 0));
 
-  // SINGLE USER
   if (userId) {
     const [open, closed] = await Promise.all([
       PaperTrade.find({ userId, status: "OPEN" }).lean(),
-      PaperTrade.find({
-        userId,
-        status: "CLOSED",
-        exitTime: { $gte: sod },
-      }).lean(),
+      PaperTrade.find({ userId, status: "CLOSED", exitTime: { $gte: sod } }).lean(),
     ]);
 
     const symbols = [...new Set(open.map((t) => t.symbol))];
@@ -370,12 +613,12 @@ async function getLivePnLSnapshot(userId = null) {
     const openMapped = open.map((t) => {
       const ltp = num(ltpMap[t.symbol]);
       const pnlAbs = ltp ? (ltp - t.entryPrice) * t.qty : null;
-      const pnlPct = pnlAbs ? (pnlAbs / t.entryPrice) * 100 : null;
+      const pnlPct = pnlAbs != null ? (pnlAbs / t.entryPrice) * 100 : null;
       return { ...t, ltp, pnlAbs, pnlPct };
     });
 
-    const unrealized = openMapped.reduce((s, t) => s + (t.pnlAbs || 0), 0);
-    const realized = closed.reduce((s, t) => s + (t.pnlAbs || 0), 0);
+    const unrealized = openMapped.reduce((sum, t) => sum + (t.pnlAbs || 0), 0);
+    const realized = closed.reduce((sum, t) => sum + (t.pnlAbs || 0), 0);
 
     return {
       ok: true,
@@ -388,40 +631,37 @@ async function getLivePnLSnapshot(userId = null) {
     };
   }
 
-  // GLOBAL MODE
   const [openTrades, closedTrades] = await Promise.all([
     PaperTrade.find({ status: "OPEN" }).lean(),
-    PaperTrade.find({
-      status: "CLOSED",
-      exitTime: { $gte: sod },
-    }).lean(),
+    PaperTrade.find({ status: "CLOSED", exitTime: { $gte: sod } }).lean(),
   ]);
 
   const symbols = [...new Set(openTrades.map((t) => t.symbol))];
   const ltpMap = await getOptimizedLTPMap(symbols);
 
-  const byUser = new Map();
-  for (const t of openTrades) {
-    const uid = String(t.userId);
-    if (!byUser.has(uid)) byUser.set(uid, []);
-    byUser.get(uid).push(t);
+  const grouped = new Map();
+
+  for (const trade of openTrades) {
+    const uid = String(trade.userId);
+    if (!grouped.has(uid)) grouped.set(uid, []);
+    grouped.get(uid).push(trade);
   }
 
   const results = [];
 
-  for (const [uid, trades] of byUser.entries()) {
+  for (const [uid, trades] of grouped.entries()) {
     const mapped = trades.map((t) => {
       const ltp = num(ltpMap[t.symbol]);
       const pnlAbs = ltp ? (ltp - t.entryPrice) * t.qty : null;
-      const pnlPct = pnlAbs ? (pnlAbs / t.entryPrice) * 100 : null;
+      const pnlPct = pnlAbs != null ? (pnlAbs / t.entryPrice) * 100 : null;
       return { ...t, ltp, pnlAbs, pnlPct };
     });
 
     const realized = closedTrades
-      .filter((x) => String(x.userId) === uid)
-      .reduce((s, t) => s + (t.pnlAbs || 0), 0);
+      .filter((t) => String(t.userId) === uid)
+      .reduce((sum, t) => sum + (t.pnlAbs || 0), 0);
 
-    const unrealized = mapped.reduce((s, t) => s + (t.pnlAbs || 0), 0);
+    const unrealized = mapped.reduce((sum, t) => sum + (t.pnlAbs || 0), 0);
 
     results.push({
       userId: uid,
@@ -440,10 +680,16 @@ async function getLivePnLSnapshot(userId = null) {
 // ------------------------------------------------------------
 // ADMIN: ALL TRADES + REALTIME PNL
 // ------------------------------------------------------------
-async function getAllTrades() {
+async function getAllTrades(options = {}) {
   try {
-    const trades = await PaperTrade.find().sort({ entryTime: -1 }).lean();
+    const query = {};
+    if (options.start || options.end) {
+      query.entryTime = {};
+      if (options.start) query.entryTime.$gte = options.start;
+      if (options.end) query.entryTime.$lte = options.end;
+    }
 
+    const trades = await PaperTrade.find(query).sort({ entryTime: -1 }).lean();
     const symbols = [...new Set(trades.map((t) => t.symbol))];
     const ltpMap = await getOptimizedLTPMap(symbols);
 
@@ -462,6 +708,7 @@ async function getAllTrades() {
       return {
         _id: t._id,
         userId: t.userId,
+        signalId: t.signalId,
         symbol: t.symbol,
         direction: "BUY",
         quantity: t.qty,
@@ -479,11 +726,7 @@ async function getAllTrades() {
       };
     });
 
-    return {
-      ok: true,
-      count: enriched.length,
-      trades: enriched,
-    };
+    return { ok: true, count: enriched.length, trades: enriched };
   } catch (err) {
     console.error("[TradeEngine] getAllTrades error:", err.message);
     return { ok: false, error: err.message, trades: [] };

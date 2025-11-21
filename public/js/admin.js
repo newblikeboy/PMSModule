@@ -70,17 +70,32 @@
   const yearNowEl = $("#yearNow");
   if (yearNowEl) yearNowEl.textContent = new Date().getFullYear();
 
+  const switchTab = (tabId, opts = {}) => {
+    const targetBtn = $(`.admin-tab-btn[data-tab="${tabId}"]`);
+    if (!targetBtn) return;
+    $$(".admin-tab-btn").forEach((b) => b.classList.remove("active"));
+    targetBtn.classList.add("active");
+    $$(".admin-tab-section").forEach((sec) => {
+      if (sec.id === tabId) sec.classList.remove("hidden");
+      else sec.classList.add("hidden");
+    });
+    if (!opts.skipScroll) window.scrollTo({ top: 0, behavior: "smooth" });
+    try { localStorage.setItem("admin_active_tab", tabId); } catch {}
+  };
+
   $$(".admin-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tabId = btn.getAttribute("data-tab");
-      $$(".admin-tab-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      $$(".admin-tab-section").forEach((sec) => {
-        if (sec.id === tabId) sec.classList.remove("hidden");
-        else sec.classList.add("hidden");
-      });
+      switchTab(tabId);
     });
   });
+
+  const savedTab = localStorage.getItem("admin_active_tab");
+  if (savedTab) {
+    switchTab(savedTab, { skipScroll: true });
+  } else {
+    switchTab("overviewTab", { skipScroll: true });
+  }
 
   const formatCurrency = (val) => {
     const amount = Number(val ?? 0);
@@ -170,24 +185,25 @@
 
     body.innerHTML = "";
     if (!resp || !resp.ok) {
-      body.innerHTML = `<tr><td colspan="5" class="admin-table-placeholder">No data / error</td></tr>`;
+      body.innerHTML = `<tr><td colspan="3" class="admin-table-placeholder">No data / error</td></tr>`;
       return;
     }
 
-    const actionable = (resp.data || []).filter((row) => row.inEntryZone);
-    if (!actionable.length) {
-      body.innerHTML = `<tr><td colspan="5" class="admin-table-placeholder">No active entries</td></tr>`;
+    const signals = resp.signals || resp.data || [];
+    if (!signals.length) {
+      body.innerHTML = `<tr><td colspan="3" class="admin-table-placeholder">No signals available</td></tr>`;
       return;
     }
 
-    actionable.forEach((row) => {
+    signals.forEach((row) => {
       const tr = document.createElement("tr");
+      const zone = row.inEntryZone ? "RSI 40-50" : "Watching";
+      const rsi = typeof row.rsi === "number" ? row.rsi.toFixed(2) : "--";
+
       tr.innerHTML = `
         <td>${row.symbol}</td>
-        <td>${formatCurrency(row.ltp)}</td>
-        <td>${formatCurrency(row.target || row.ltp)}</td>
-        <td>${formatCurrency(row.stop || 0)}</td>
-        <td>${row.reason || "--"}</td>
+        <td>${zone}</td>
+        <td>${rsi}</td>
       `;
       body.appendChild(tr);
     });
@@ -896,4 +912,3 @@
     setInterval(fetchLatestTicks, 2000);
   })();
 })(); 
-

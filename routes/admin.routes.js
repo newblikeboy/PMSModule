@@ -7,6 +7,8 @@ const adminRequired = require("../middlewares/adminRequired");
 const adminCtrl = require("../controllers/admin.controller");
 const angelPublisher = require("../services/angel.publisher.service");
 const User = require("../models/User");
+const { DateTime } = require("luxon");
+const { IST } = require("../utils/time");
 
 const {
   getEngineStatus,
@@ -38,7 +40,11 @@ router.get("/signals", adminRequired, async (req, res, next) => {
 router.get("/trades", adminRequired, async (req, res, next) => {
   try {
     const tradeEngine = require("../services/tradeEngine.service");
-    const result = await tradeEngine.getAllTrades();
+    const now = DateTime.now().setZone(IST);
+    const startUTC = now.startOf("day").toUTC().toJSDate();
+    const endUTC = now.endOf("day").toUTC().toJSDate();
+
+    const result = await tradeEngine.getAllTrades({ start: startUTC, end: endUTC });
     res.json(result);
   } catch (err) {
     next(err);

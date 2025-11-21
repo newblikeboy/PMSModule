@@ -17,7 +17,7 @@ function toTwo(n) {
   return Number(n).toFixed(2);
 }
 
-async function fetchTodayTrades() {
+async function fetchTodayTrades(filter = {}) {
   // हम एक तेज तरीका लेंगे:
   // 1. आज की शुरुआत IST से -> आज रात IST तक का range
   const now = DateTime.now().setZone(IST);
@@ -28,9 +28,15 @@ async function fetchTodayTrades() {
   const startUTC = startOfDay.toUTC();
   const endUTC   = endOfDay.toUTC();
 
-  const trades = await PaperTrade.find({
+  const query = {
     entryTime: { $gte: startUTC.toJSDate(), $lte: endUTC.toJSDate() }
-  }).sort({ entryTime: 1 }).lean();
+  };
+
+  if (filter.userId) {
+    query.userId = filter.userId;
+  }
+
+  const trades = await PaperTrade.find(query).sort({ entryTime: 1 }).lean();
 
   return trades;
 }
@@ -43,6 +49,7 @@ function summarizeTrades(trades) {
     closedTrades: 0,
     wins: 0,
     losses: 0,
+    selfClosed: 0,
     grossPnLAbs: 0,
     avgPnLAbs: 0,
     bestTrade: null,
@@ -84,8 +91,15 @@ function summarizeTrades(trades) {
   closed.forEach(r => {
     const abs = r.pnlAbs || 0;
     summary.grossPnLAbs += abs;
-    if (abs > 0) summary.wins += 1;
-    else if (abs < 0) summary.losses += 1;
+    const note = (r.notes || "").toUpperCase();
+    const isManual = note.includes("MANUAL") || note.includes("SELF");
+    if (isManual) {
+      summary.selfClosed += 1;
+    } else if (abs > 0) {
+      summary.wins += 1;
+    } else if (abs < 0) {
+      summary.losses += 1;
+    }
   });
 
   // avgPnLAbs (per closed trade)
@@ -167,8 +181,8 @@ function buildCSV(summary, rows) {
   return { csv, filename };
 }
 
-async function buildDailyReport() {
-  const trades = await fetchTodayTrades();
+async function buildDailyReport(options = {}) {
+  const trades = await fetchTodayTrades(options);
   const { summary, rows } = summarizeTrades(trades);
   return {
     ok: true,
@@ -177,8 +191,8 @@ async function buildDailyReport() {
   };
 }
 
-async function buildDailyReportCSV() {
-  const trades = await fetchTodayTrades();
+async function buildDailyReportCSV(options = {}) {
+  const trades = await fetchTodayTrades(options);
   const { summary, rows } = summarizeTrades(trades);
   return buildCSV(summary, rows);
 }

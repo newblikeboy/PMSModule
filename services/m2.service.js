@@ -20,6 +20,7 @@ const { calcRSI14FromCandles } = require("../utils/indicators");
 const M2Signal = require("../models/M2Signal");
 const M1Mover = require("../models/M1Mover");
 const { DateTime } = require("luxon");
+const { IST } = require("../utils/time");
 
 // -------------------------------- CONFIG --------------------------------
 const CFG = {
@@ -31,6 +32,10 @@ const CFG = {
   RSI_MIN_DIFF: 0.15,            // improved debounce
   SEED_RETRY_LIMIT: 3,
   CLEANUP_ON_START: true,
+  HISTORY_START_H: 10,
+  HISTORY_START_M: 0,
+  HISTORY_END_H: 10,
+  HISTORY_END_M: 30,
 };
 
 let minuteSeries = new Map();     // symbol → candles
@@ -38,18 +43,24 @@ let lastRSI = new Map();          // symbol → last RSI value
 let moversList = [];
 let isStarting = false;
 let isStarted = false;
+let signaledSymbols = new Set();
 
 let tickHandler = null;
 
 // ------------------------------- HELPERS -------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const IST = "Asia/Kolkata";
-
 const bucket = (ts) => Math.floor(ts / 60000) * 60000;
 
 function safeNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function historyWindowBounds() {
+  const base = DateTime.now().setZone(IST);
+  const start = base.set({ hour: CFG.HISTORY_START_H, minute: CFG.HISTORY_START_M, second: 0, millisecond: 0 });
+  const end = base.set({ hour: CFG.HISTORY_END_H, minute: CFG.HISTORY_END_M, second: 0, millisecond: 0 });
+  return { startMs: start.toMillis(), endMs: end.toMillis() };
 }
 
 // ---------------------- Normalize history candle -----------------------
@@ -117,7 +128,17 @@ async function seedSymbolHistory(symbol) {
       const normalized = normalizeHistory(data);
       if (!normalized.length) throw new Error("Empty history");
 
-      minuteSeries.set(symbol, normalized);
+      const { startMs, endMs } = historyWindowBounds();
+      const filtered = normalized.filter(([ts]) => {
+        if (!ts) return false;
+        if (startMs && ts < startMs) return false;
+        if (endMs && ts > endMs) return false;
+        return true;
+      });
+
+      if (!filtered.length) throw new Error("History window empty");
+
+      minuteSeries.set(symbol, filtered);
       return true;
 
     } catch (err) {
@@ -139,6 +160,8 @@ async function seedAllMoverHistory() {
 
 // ------------------------ Compute RSI + Store ---------------------------
 async function handleRSI(symbol, onSignal) {
+  if (signaledSymbols.has(symbol)) return;
+
   const arr = minuteSeries.get(symbol) || [];
   if (arr.length < 20) return;
 
@@ -158,20 +181,28 @@ async function handleRSI(symbol, onSignal) {
   const inZone = rsi >= CFG.RSI_MIN && rsi <= CFG.RSI_MAX;
 
   try {
-    await M2Signal.findOneAndUpdate(
-      { symbol },
-      {
+    const update = {
+      $set: {
         symbol,
         rsi: Number(rsi.toFixed(2)),
         timeframe: "1m",
         inEntryZone: inZone,
         updatedAt: new Date(),
       },
-      { upsert: true }
-    );
+      $setOnInsert: { capturedAt: new Date() },
+    };
+
+    if (inZone) {
+      update.$unset = { consumedAt: "" };
+    } else {
+      update.$set.consumedAt = null;
+    }
+
+    await M2Signal.findOneAndUpdate({ symbol }, update, { upsert: true });
 
     if (inZone) {
       console.log(`[M2] SIGNAL: ${symbol} — RSI ${rsi.toFixed(2)}`);
+      signaledSymbols.add(symbol);
       if (onSignal) onSignal();
     }
   } catch (err) {
@@ -208,6 +239,8 @@ async function startM2Engine(onSignal) {
     if (CFG.CLEANUP_ON_START) {
       await M2Signal.updateMany({}, { inEntryZone: false });
     }
+
+    signaledSymbols = new Set();
 
     // Load today's M1 movers
     const today = new Date();
@@ -269,6 +302,7 @@ async function stopM2Engine() {
     minuteSeries.clear();
     lastRSI.clear();
     moversList = [];
+    signaledSymbols = new Set();
 
     isStarted = false;
     isStarting = false;
@@ -284,7 +318,14 @@ async function stopM2Engine() {
 // ---------------------------- EXPORT API --------------------------------
 async function getLatestSignalsFromDB() {
   try {
-    const signals = await M2Signal.find({}).sort({ updatedAt: -1 }).limit(50).lean();
+    const startUTC = DateTime.now().setZone(IST).startOf("day").toUTC().toJSDate();
+
+    const signals = await M2Signal.find({
+      capturedAt: { $gte: startUTC }
+    })
+      .sort({ capturedAt: 1, updatedAt: 1 })
+      .limit(50)
+      .lean();
     return { ok: true, signals };
   } catch (err) {
     console.error("[M2] getLatestSignalsFromDB error:", err.message);
