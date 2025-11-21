@@ -152,7 +152,7 @@ async function storeQuotes(snapshots) {
             name: cleanName,
             ltp: s.ltp,
             prevClose: s.prevClose,
-            changePct: Number(changePct.toFixed(2)),
+            changePct: changePct !== null ? Number(changePct.toFixed(2)) : 0,
             changeAmt: Number(changeAmt.toFixed(2)),
             fetchedAt: new Date(),
             source: "m1",
