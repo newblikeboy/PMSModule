@@ -32,6 +32,7 @@
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   display: flex;
+  overflow-x: hidden;
 }
 
 .app-sidebar {
@@ -535,7 +536,7 @@
 }
 
 .app-hero-guide {
-  min-width: 320px;
+  min-width: 0;
   max-width: 360px;
   background: rgba(255, 255, 255, 0.96);
   border-radius: var(--app-radius-lg);
@@ -1231,6 +1232,43 @@
 
   .app-checklist-status {
     text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-hero {
+    padding: 20px;
+  }
+
+  .app-hero-top {
+    gap: 18px;
+  }
+
+  .app-hero-guide {
+    max-width: none;
+    width: 100%;
+  }
+
+  .app-hero-metrics {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .app-card-head {
+    padding: 20px 20px 12px;
+  }
+
+  .app-card-body,
+  .app-settings {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .pricing-modal-card {
+    padding: 22px;
+  }
+
+  .app-scroll {
+    -webkit-overflow-scrolling: touch;
   }
 }
 .app-engine-status {

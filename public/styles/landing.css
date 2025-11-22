@@ -336,6 +336,21 @@ a {
   color: var(--text-muted);
 }
 
+.hero-highlights {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.hero-highlights strong {
+  color: var(--text-main);
+}
+
 .hero-visual {
   display: flex;
   justify-content: center;
@@ -555,12 +570,93 @@ a {
 }
 
 /* ==========================================================================
+   Broker availability
+   ========================================================================== */
+
+.lp-brokers {
+  background: radial-gradient(circle at 90% 0%, rgba(63, 95, 255, 0.08), transparent 60%);
+}
+
+.broker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.broker-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+  padding: 20px 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.broker-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.broker-name {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text-main);
+}
+
+.broker-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(63, 95, 255, 0.18);
+  color: var(--accent-primary);
+  background: var(--bg-pill);
+}
+
+.broker-badge.live {
+  background: rgba(18, 184, 134, 0.12);
+  color: #0f8d6b;
+  border-color: rgba(18, 184, 134, 0.3);
+}
+
+.broker-badge.beta {
+  background: rgba(245, 159, 0, 0.14);
+  color: var(--amber);
+  border-color: rgba(245, 159, 0, 0.3);
+}
+
+.broker-badge.roadmap {
+  background: rgba(63, 95, 255, 0.1);
+  color: var(--accent-primary);
+}
+
+.broker-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.broker-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
    Value cards
    ========================================================================== */
 
 .value-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 24px;
 }
 
@@ -595,6 +691,179 @@ a {
   font-size: 14px;
   color: var(--text-soft);
   line-height: 1.7;
+}
+
+/* ==========================================================================
+   Platform modules
+   ========================================================================== */
+
+.lp-platform {
+  background: radial-gradient(circle at 0% 0%, rgba(63, 95, 255, 0.08), transparent 50%);
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  align-items: start;
+}
+
+.platform-intro {
+  display: grid;
+  gap: 18px;
+}
+
+.platform-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.platform-points li {
+  padding-left: 18px;
+  border-left: 2px solid rgba(63, 95, 255, 0.16);
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.platform-points li span {
+  display: block;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.platform-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.platform-card {
+  padding: 26px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.12);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(239, 243, 255, 0.8));
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 12px;
+}
+
+.platform-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.platform-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.platform-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Controls section
+   ========================================================================== */
+
+.lp-controls {
+  background: radial-gradient(circle at 20% 10%, rgba(63, 95, 255, 0.08), transparent 55%);
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  align-items: start;
+}
+
+.controls-copy {
+  display: grid;
+  gap: 18px;
+}
+
+.control-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag-pill {
+  background: var(--bg-pill);
+  color: var(--accent-primary);
+  border: 1px solid rgba(63, 95, 255, 0.16);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.controls-list {
+  display: grid;
+  gap: 16px;
+}
+
+.control-card {
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 10px;
+}
+
+.control-card h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.control-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Strength section
+   ========================================================================== */
+
+.lp-strength {
+  background: radial-gradient(circle at 10% 10%, rgba(63, 95, 255, 0.08), transparent 55%);
+}
+
+.strength-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  align-items: start;
+}
+
+.strength-copy {
+  display: grid;
+  gap: 18px;
+}
+
+.strength-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.strength-cards {
+  gap: 16px;
 }
 
 /* ==========================================================================
@@ -869,6 +1138,79 @@ a {
 }
 
 /* ==========================================================================
+   Scoreboard
+   ========================================================================== */
+
+.lp-score {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.score-card {
+  padding: 28px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 12px;
+}
+
+.score-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.score-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.score-pill {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.score-pill.good {
+  background: rgba(18, 184, 134, 0.12);
+  color: #0f8d6b;
+}
+
+.score-pill.warn {
+  background: rgba(245, 159, 0, 0.14);
+  color: var(--amber);
+}
+
+.score-pill.calm {
+  background: rgba(63, 95, 255, 0.1);
+  color: var(--accent-primary);
+}
+
+.score-value {
+  font-size: 36px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.score-meta {
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+/* ==========================================================================
    Proof / Testimonials
    ========================================================================== */
 
@@ -905,6 +1247,170 @@ a {
 .form-note {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   FAQ
+   ========================================================================== */
+
+.lp-faq {
+  background: var(--bg-surface);
+}
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.faq-item {
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(63, 95, 255, 0.12);
+  background: #fff;
+  padding: 18px 22px;
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+  box-shadow: var(--shadow-soft);
+}
+
+.faq-item summary {
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.faq-item[open] summary {
+  color: var(--accent-primary);
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item summary::after {
+  content: "+";
+  float: right;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.faq-item[open] summary::after {
+  content: "-";
+}
+
+/* ==========================================================================
+   How it works (alt)
+   ========================================================================== */
+
+.lp-how {
+  background: var(--bg-surface);
+}
+
+.how-grid.alt {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.how-card {
+  background: #fff;
+}
+
+/* ==========================================================================
+   Blog / resources
+   ========================================================================== */
+
+.lp-blog {
+  background: radial-gradient(circle at 80% 20%, rgba(139, 77, 255, 0.08), transparent 55%);
+}
+
+.blog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.blog-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(63, 95, 255, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+  padding: 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.blog-tag {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.blog-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.blog-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.blog-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.blog-link:hover {
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Bottom CTA
+   ========================================================================== */
+
+.lp-cta {
+  background: var(--accent-gradient);
+  color: #fff;
+  padding: 80px 0;
+}
+
+.lp-cta-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.lp-cta-card h2 {
+  font-size: clamp(28px, 3vw, 36px);
+  margin: 12px 0;
+}
+
+.lp-cta-card p {
+  max-width: 560px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.7;
+}
+
+.lp-cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.lp-cta-actions .lp-secondary-btn {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
 }
 
 /* ==========================================================================
@@ -1134,10 +1640,21 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .platform-grid,
+  .controls-grid {
+    grid-template-columns: 1fr;
+  }
+
   .value-grid,
   .proof-grid,
-  .pricing-grid {
+  .pricing-grid,
+  .score-grid,
+  .blog-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .faq-grid {
+    grid-template-columns: 1fr;
   }
 
   .lp-foot-grid {
@@ -1168,9 +1685,13 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .platform-cards,
+  .controls-grid,
   .value-grid,
   .proof-grid,
-  .pricing-grid {
+  .pricing-grid,
+  .score-grid,
+  .blog-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1194,6 +1715,11 @@ a {
 
   .lp-foot-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lp-cta-card {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

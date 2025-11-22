@@ -2,8 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IntradayGain - Trade With Discipline</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IntradayGain | Trade with Discipline</title>
+  <meta
+    name="description"
+    content="IntradayGain connects Angel One and leading brokers, streams live equity signals, and enforces SEBI-aware guardrails so intraday traders execute with discipline."
+  />
+  <meta
+    name="keywords"
+    content="Angel One automation, intraday trading platform, Indian stock trading, algo trading India, risk managed trading"
+  />
+  <meta property="og:title" content="IntradayGain | Angel-ready Intraday Automation" />
+  <meta
+    property="og:description"
+    content="Score, stage, and route intraday trades with built-in risk, compliance, and execution guardrails for Indian markets."
+  />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://intradaygain.com/" />
+  <meta property="og:image" content="https://intradaygain.com/og-intradaygain.png" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,22 +29,22 @@
   <link rel="stylesheet" href="./styles/landing.css" />
 </head>
 <body class="lp-body">
-  <header class="lp-nav-wrap">
+  <header class="lp-nav-wrap" id="top">
     <div class="lp-nav container">
-      <a href="#top" class="lp-brand" aria-label="IntradayGain home">
+      <a href="#hero" class="lp-brand" aria-label="IntradayGain home">
         <div class="lp-logo">IG</div>
         <div class="lp-brand-text">
           <div class="lp-brand-name">IntradayGain</div>
-          <div class="lp-brand-tag">Algorithmic Precision</div>
+          <div class="lp-brand-tag">Precision Intraday OS</div>
         </div>
       </a>
 
-      <nav class="lp-nav-links">
-        <a href="#why" class="lp-link">Why IntradayGain</a>
-        <a href="#features" class="lp-link">Capabilities</a>
-        <a href="#app" class="lp-link">Workflow</a>
+      <nav class="lp-nav-links" aria-label="Primary">
+        <a href="#hero" class="lp-link">Overview</a>
+        <a href="#brokers" class="lp-link">Broker Availability</a>
+        <a href="#strength" class="lp-link">System Strength</a>
         <a href="#pricing" class="lp-link">Pricing</a>
-
+        <a href="#how" class="lp-link">How it Works</a>
         <button class="lp-login-btn" id="openLoginBtn" type="button">Login</button>
         <button class="lp-cta-btn" id="openSignupBtn" type="button">Get Started</button>
       </nav>
@@ -41,55 +57,41 @@
     </div>
 
     <div class="mobile-nav" id="mobileNav">
-      <a href="#why" class="mnav-link">Why IntradayGain</a>
-      <a href="#features" class="mnav-link">Capabilities</a>
-      <a href="#app" class="mnav-link">Workflow</a>
+      <a href="#hero" class="mnav-link">Overview</a>
+      <a href="#brokers" class="mnav-link">Broker Availability</a>
+      <a href="#strength" class="mnav-link">System Strength</a>
       <a href="#pricing" class="mnav-link">Pricing</a>
+      <a href="#how" class="mnav-link">How it Works</a>
       <button class="mnav-link" id="openLoginBtnMobile" type="button">Login</button>
-      <button class="mnav-link highlight" id="openSignupBtnMobile" type="button">Get Started</button>
+      <button class="mnav-link highlight" id="openSignupBtnMobile" type="button">Start for Free</button>
     </div>
   </header>
 
-  <main id="top">
-    <section class="lp-hero" id="why">
+  <main id="content">
+    <!-- Hero -->
+    <section class="lp-hero" id="hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="lp-eyebrow">Institutional-grade stock automation</span>
-          <h1 class="lp-headline">
-            Automate disciplined stock trading<br />
-            across every desk.
-          </h1>
+          <span class="lp-eyebrow">Angel-ready - SEBI-aware</span>
+          <h1 class="lp-headline">Automate intraday trades without giving up control.</h1>
           <p class="lp-subtext">
-            IntradayGain scores Indian equities in real time, sizes each entry, and enforces risk so your team executes
-            on data-backed conviction instead of reacting to intraday noise.
+            IntradayGain scans NSE/BSE equities, tags only checklist-approved signals, and routes them through guardrails
+            you configure - margin budgets, drawdown brakes, news halts, and maker-checker approvals.
           </p>
 
           <div class="lp-cta-row">
-            <button class="lp-primary-btn js-open-signup" type="button">Get Started</button>
-            <button class="lp-secondary-btn" id="openLoginBtnBelow" type="button">Explore Live Console</button>
+            <button class="lp-primary-btn js-open-signup" type="button">Start paper mode</button>
+            <button class="lp-secondary-btn" id="openLoginBtnBelow" type="button">Enter live console</button>
           </div>
 
-          <div class="hero-metrics">
-            <div class="hero-metric">
-              <span class="metric-value">12,400+</span>
-              <span class="metric-label">Equity signals verified in production</span>
-            </div>
-            <div class="hero-metric">
-              <span class="metric-value">89%</span>
-              <span class="metric-label">Playbook adherence across trading pods</span>
-            </div>
-            <div class="hero-metric">
-              <span class="metric-value">&lt; 3 min</span>
-              <span class="metric-label">Average alert-to-staged stock order</span>
-            </div>
-          </div>
-
-          <p class="hero-footnote">
-            *Internal benchmarks across Indian equities desks, Jan-Jun 2024.
-          </p>
+          <ul class="hero-highlights">
+            <li><strong>Live sync:</strong> Funds, limits, and positions refresh every 30s.</li>
+            <li><strong>Risk-first:</strong> Orders pause when volatility, drawdown, or news filters breach.</li>
+            <li><strong>Audit clean:</strong> Every trade has rationale, R:R, and reviewer stamps.</li>
+          </ul>
         </div>
 
-        <div class="hero-visual">
+        <div class="hero-visual" aria-hidden="true">
           <div class="hero-panel">
             <div class="panel-head">
               <div>
@@ -101,39 +103,39 @@
 
             <div class="panel-body">
               <div class="panel-card">
-                <div class="card-label">Signal Strength</div>
-                <div class="card-value accent">87.4</div>
-                <div class="card-meta">Momentum vs. float</div>
+                <div class="card-label">Signal strength</div>
+                <div class="card-value accent">88.2</div>
+                <div class="card-meta">Regime + float</div>
               </div>
               <div class="panel-card">
-                <div class="card-label">Capital Allocated</div>
+                <div class="card-label">Capital allocated</div>
                 <div class="card-value">&#8377; 8.6L</div>
-                <div class="card-meta">Utilization 63%</div>
+                <div class="card-meta">Utilisation 63%</div>
               </div>
               <div class="panel-card">
-                <div class="card-label">Active Positions</div>
+                <div class="card-label">Auto exits</div>
                 <div class="card-value">12</div>
-                <div class="card-meta">Auto-managed exits</div>
+                <div class="card-meta">Trailing + partials</div>
               </div>
             </div>
 
             <div class="panel-stream">
               <div class="stream-row">
-                <span class="stream-tag long">LONG</span>
+                <span class="stream-tag long">Long</span>
                 <span class="stream-name">TCS</span>
-                <span class="stream-meta">Entry &#8377;3,624 | R:R 1.8</span>
+                <span class="stream-meta">Entry &#8377;3,624 - R:R 1.8</span>
                 <span class="stream-change up">+0.72%</span>
               </div>
               <div class="stream-row">
-                <span class="stream-tag short">SHORT</span>
+                <span class="stream-tag short">Short</span>
                 <span class="stream-name">RELIANCE</span>
-                <span class="stream-meta">Entry &#8377;2,365 | R:R 1.9</span>
+                <span class="stream-meta">Entry &#8377;2,365 - Risk sync</span>
                 <span class="stream-change down">-0.28%</span>
               </div>
               <div class="stream-row">
-                <span class="stream-tag flat">WATCH</span>
+                <span class="stream-tag flat">Watch</span>
                 <span class="stream-name">HDFCBANK</span>
-                <span class="stream-meta">Stop &amp; target synced</span>
+                <span class="stream-meta">Stop and target linked</span>
                 <span class="stream-change neutral">0.00%</span>
               </div>
             </div>
@@ -142,112 +144,125 @@
       </div>
     </section>
 
-
-
-    <section class="lp-section lp-value" id="features">
+    <!-- Broker Availability -->
+    <section class="lp-section lp-brokers" id="brokers">
       <div class="container">
         <div class="lp-section-head">
-          <span class="section-eyebrow">Why teams switch</span>
-          <h2>Discipline, automation, and compliance for stock desks.</h2>
+          <span class="section-eyebrow">Broker availability</span>
+          <h2>Connect Angel One today. Zerodha, ICICI Direct, and Choice next.</h2>
           <p>
-            IntradayGain pairs live market intelligence with real-time controls so every order follows your equity
-            playbooks and regulatory guardrails.
+            Plug in your broker, sync funds and positions, and keep all guardrails intact. Dealers can approve, pause, or
+            override without breaking the audit trail.
           </p>
         </div>
 
-        <div class="value-grid">
-          <article class="value-card">
-            <div class="value-icon">01</div>
-            <h3>Signal intelligence</h3>
-            <p>Multi-factor stock scoring, liquidity heatmaps, and intraday regime detection tuned for Indian equities.</p>
+        <div class="broker-grid">
+          <article class="broker-card live">
+            <div class="broker-top">
+              <div class="broker-name">Angel One</div>
+              <span class="broker-badge live">Live</span>
+            </div>
+            <p>Auto-login, funds sync, order routing, and maker-checker in production.</p>
+            <ul>
+              <li>2FA-aware login flow</li>
+              <li>Margin refresh every 30s</li>
+              <li>Throttle and pause controls</li>
+            </ul>
           </article>
-
-          <article class="value-card">
-            <div class="value-icon">02</div>
-            <h3>Risk concierge</h3>
-            <p>Hard limits, adaptive stops, and trade halts triggered automatically when volatility or drawdowns breach thresholds.</p>
+          <article class="broker-card beta">
+            <div class="broker-top">
+              <div class="broker-name">Zerodha</div>
+              <span class="broker-badge beta">Beta</span>
+            </div>
+            <p>Order staging and risk sync in testing. Register to join the beta wave.</p>
+            <ul>
+              <li>Smart order routing</li>
+              <li>Position &amp; P/L mirrors</li>
+              <li>Webhook callbacks</li>
+            </ul>
           </article>
-
-          <article class="value-card">
-            <div class="value-icon">03</div>
-            <h3>360 oversight</h3>
-            <p>Audit trails, compliance-ready exports, and analyst annotations keep every stock order explainable for risk teams and stakeholders.</p>
+          <article class="broker-card roadmap">
+            <div class="broker-top">
+              <div class="broker-name">ICICI Direct</div>
+              <span class="broker-badge roadmap">Roadmap</span>
+            </div>
+            <p>Enterprise desks already enrolled. Go live once compliance sign-off is done.</p>
+            <ul>
+              <li>Dealer approvals</li>
+              <li>Audit exports</li>
+              <li>Latency dashboards</li>
+            </ul>
+          </article>
+          <article class="broker-card roadmap">
+            <div class="broker-top">
+              <div class="broker-name">Choice</div>
+              <span class="broker-badge roadmap">Roadmap</span>
+            </div>
+            <p>Plug-in under build; dual-routing planned with Angel and Zerodha.</p>
+            <ul>
+              <li>Risk-aware staging</li>
+              <li>News halts</li>
+              <li>Playbook checks</li>
+            </ul>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="lp-section lp-pipeline" id="app">
-      <div class="container pipeline-grid">
-        <div class="pipeline-copy">
-          <span class="section-eyebrow">Execution choreography</span>
-          <h2>How IntradayGain runs your playbook end to end</h2>
+    <!-- System Strength -->
+    <section class="lp-section lp-strength" id="strength">
+      <div class="container strength-grid">
+        <div class="strength-copy">
+          <span class="section-eyebrow">System strength</span>
+          <h2>Built for high-discipline, low-latency intraday desks.</h2>
           <p>
-            Every signal is scored, simulated, and staged before a single order leaves the desk. Your team sees the
-            full story before committing risk.
+            IntradayGain combines scoring, guardrails, and human oversight in one OS. Every signal and action is timed,
+            tagged, and explainable.
           </p>
-
-          <ul class="pipeline-list">
-            <li>
-              <span class="step-id">Signal lab</span>
-              <span class="step-copy">Adaptive models filter 11M+ market data points daily for statistical edge.</span>
-            </li>
-            <li>
-              <span class="step-id">Trade studio</span>
-              <span class="step-copy">Scenario testing and walkthroughs highlight impact on book P&amp;L in real time.</span>
-            </li>
-            <li>
-              <span class="step-id">Execution guardrail</span>
-              <span class="step-copy">Orders route only when risk, position limits, and news filters are green.</span>
-            </li>
-            <li>
-              <span class="step-id">Review intelligence</span>
-              <span class="step-copy">Daily debriefs surface drift, slippage, and coachable trade behaviour.</span>
-            </li>
-          </ul>
-        </div>
-
-        <div class="pipeline-visual">
-          <div class="pipeline-card">
-            <div class="pipeline-head">
-              <span class="pipeline-title">Strategy Health</span>
-              <span class="pipeline-pill ok">Optimal</span>
-            </div>
-            <div class="pipeline-metric">
-              <span class="metric-name">Risk Units Used</span>
-              <span class="metric-score">63%</span>
-            </div>
-            <div class="pipeline-chart">
-              <div class="chart-bar"></div>
-            </div>
-            <div class="pipeline-summary">
-              <div>
-                <span class="summary-label">Execution latency</span>
-                <span class="summary-value">0.42s</span>
-              </div>
-              <div>
-                <span class="summary-label">Slippage impact</span>
-                <span class="summary-value green">-0.12%</span>
-              </div>
-              <div>
-                <span class="summary-label">Compliance checks</span>
-                <span class="summary-value">Passed</span>
-              </div>
-            </div>
-            <div class="pipeline-foot">
-              Updated 14:28 IST · NSE / BSE connectivity 100%
-            </div>
+          <div class="strength-pills">
+            <span class="tag-pill">11M+ data points/day</span>
+            <span class="tag-pill">Sub-second routing</span>
+            <span class="tag-pill">Maker-checker</span>
+            <span class="tag-pill">News + volatility halts</span>
+            <span class="tag-pill">Audit exports</span>
           </div>
         </div>
+        <div class="score-grid strength-cards">
+          <article class="score-card">
+            <div class="score-head">
+              <span class="score-title">Playbook health</span>
+              <span class="score-pill good">On track</span>
+            </div>
+            <p class="score-value">92%</p>
+            <p class="score-meta">Positions that met every checklist item this week.</p>
+          </article>
+          <article class="score-card">
+            <div class="score-head">
+              <span class="score-title">Capital at risk</span>
+              <span class="score-pill warn">63% used</span>
+            </div>
+            <p class="score-value">&#8377; 8.8L</p>
+            <p class="score-meta">Budgeted vs Angel funds auto-refreshed every 30 seconds.</p>
+          </article>
+          <article class="score-card">
+            <div class="score-head">
+              <span class="score-title">Execution latency</span>
+              <span class="score-pill calm">Sub-second</span>
+            </div>
+            <p class="score-value">0.42s</p>
+            <p class="score-meta">Average alert-to-order time with throttles active.</p>
+          </article>
+        </div>
       </div>
     </section>
 
+    <!-- Pricing -->
     <section class="lp-section lp-pricing" id="pricing">
       <div class="container">
         <div class="lp-section-head">
-          <span class="section-eyebrow">Plans for every desk</span>
-          <h2>Choose the pricing cadence that fits your equity team</h2>
-          <p>Every plan includes real-time stock analytics, automated risk guardrails, and dedicated onboarding support.</p>
+          <span class="section-eyebrow">Pricing</span>
+          <h2>Choose the cadence that fits your desk.</h2>
+          <p>Each plan ships with live analytics, risk guardrails, concierge onboarding, and audit-ready reports.</p>
         </div>
 
         <div class="pricing-grid">
@@ -305,7 +320,39 @@
       </div>
     </section>
 
-    
+    <!-- How it Works -->
+    <section class="lp-section lp-how" id="how">
+      <div class="container">
+        <div class="lp-section-head">
+          <span class="section-eyebrow">How it works</span>
+          <h2>Clear, auditable steps from signal to exit.</h2>
+          <p>Every stage is logged, timed, and tied to your rules so compliance and dealers stay aligned.</p>
+        </div>
+
+        <div class="how-grid alt">
+          <article class="how-card">
+            <div class="how-step">Step 1</div>
+            <div class="how-head">Signal lab</div>
+            <div class="how-desc">Models scan NSE/BSE tick data and news to score momentum, liquidity, and volatility.</div>
+          </article>
+          <article class="how-card">
+            <div class="how-step">Step 2</div>
+            <div class="how-head">Trade studio</div>
+            <div class="how-desc">Playbook checks and scenarios show book impact and R:R before staging orders.</div>
+          </article>
+          <article class="how-card">
+            <div class="how-step">Step 3</div>
+            <div class="how-head">Guarded execution</div>
+            <div class="how-desc">Orders route only when margin, position limits, volatility, and news filters are green.</div>
+          </article>
+          <article class="how-card">
+            <div class="how-step">Step 4</div>
+            <div class="how-head">Review intelligence</div>
+            <div class="how-desc">Auto-generated recaps track discipline, slippage, and coachable patterns.</div>
+          </article>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="lp-foot">
@@ -324,17 +371,18 @@
 
       <div class="lp-foot-col">
         <div class="lp-foot-head">Product</div>
-        <a href="#why" class="lp-foot-link">Why IntradayGain</a>
-        <a href="#features" class="lp-foot-link">Capabilities</a>
-        <a href="#app" class="lp-foot-link">Workflow</a>
+        <a href="#hero" class="lp-foot-link">Overview</a>
+        <a href="#brokers" class="lp-foot-link">Broker availability</a>
+        <a href="#strength" class="lp-foot-link">System strength</a>
         <a href="#pricing" class="lp-foot-link">Pricing</a>
+        <a href="#how" class="lp-foot-link">How it works</a>
       </div>
 
       <div class="lp-foot-col">
         <div class="lp-foot-head">Contact</div>
-        <div class="lp-foot-link">support@IntradayGain.Com</div>
+        <div class="lp-foot-link">support@IntradayGain.com</div>
         <div class="lp-foot-link">WhatsApp: +91 98xxxxxx12</div>
-        <div class="lp-foot-link">India </div>
+        <div class="lp-foot-link">Bengaluru - Mumbai - Remote</div>
       </div>
     </div>
 
@@ -343,16 +391,15 @@
         <div class="lp-foot-left">
           &copy; <span id="yearNow"></span> IntradayGain Technologies Pvt. Ltd. All rights reserved.
         </div>
-        <div class="lp-foot-right">
-          Markets are risky. Evaluate suitability before enabling live execution.
-        </div>
+        <div class="lp-foot-right">Markets are risky. Evaluate suitability before enabling live execution.</div>
       </div>
     </div>
   </footer>
 
-  <div class="modal-overlay" id="loginModal">
+  <!-- Modals -->
+  <div class="modal-overlay" id="loginModal" aria-modal="true" role="dialog">
     <div class="modal-card">
-      <button class="modal-close" data-close-modal type="button">&times;</button>
+      <button class="modal-close" data-close-modal type="button" aria-label="Close login form">&times;</button>
       <div class="modal-head">
         <div class="modal-title">Welcome back</div>
         <div class="modal-sub">Log in to your IntradayGain console</div>
@@ -360,20 +407,18 @@
 
       <form id="loginForm" class="modal-form">
         <div class="form-field">
-          <label>Email</label>
-          <input type="email" name="email" placeholder="you@example.com" required />
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" name="email" placeholder="you@example.com" required />
         </div>
 
         <div class="form-field">
-          <label>Password</label>
-          <input type="password" name="password" placeholder="********" required />
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" name="password" placeholder="********" required />
         </div>
 
         <button class="lp-primary-btn block" type="submit" id="loginSubmitBtn">Log in</button>
 
-        <div class="form-note" id="loginMsg">
-          After login you will be redirected to your dashboard.
-        </div>
+        <div class="form-note" id="loginMsg">After login you will be redirected to your dashboard.</div>
 
         <div class="modal-alt">
           New here?
@@ -383,9 +428,9 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="signupModal">
+  <div class="modal-overlay" id="signupModal" aria-modal="true" role="dialog">
     <div class="modal-card">
-      <button class="modal-close" data-close-modal type="button">&times;</button>
+      <button class="modal-close" data-close-modal type="button" aria-label="Close signup form">&times;</button>
       <div class="modal-head">
         <div class="modal-title">Get started</div>
         <div class="modal-sub">Paper trade first. Go live later.</div>
@@ -393,30 +438,28 @@
 
       <form id="signupForm" class="modal-form">
         <div class="form-field">
-          <label>Full name</label>
-          <input type="text" name="name" placeholder="Rahul Sharma" required />
+          <label for="signupName">Full name</label>
+          <input type="text" id="signupName" name="name" placeholder="Enter Your Name" required />
         </div>
 
         <div class="form-field">
-          <label>Email</label>
-          <input type="email" name="email" placeholder="you@example.com" required />
+          <label for="signupEmail">Email</label>
+          <input type="email" id="signupEmail" name="email" placeholder="you@example.com" required />
         </div>
 
         <div class="form-field">
-          <label>Phone / WhatsApp</label>
-          <input type="tel" name="phone" placeholder="Enter Your Mobile Number" />
+          <label for="signupPhone">Phone / WhatsApp</label>
+          <input type="tel" id="signupPhone" name="phone" placeholder="Enter your mobile number" />
         </div>
 
         <div class="form-field">
-          <label>Password</label>
-          <input type="password" name="password" placeholder="Choose a password" required />
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" name="password" placeholder="Choose a password" required />
         </div>
 
         <button class="lp-primary-btn block" type="submit" id="signupSubmitBtn">Create account</button>
 
-        <div class="form-note" id="signupMsg">
-          We will not place live trades unless you enable it.
-        </div>
+        <div class="form-note" id="signupMsg">We will not place live trades unless you enable it.</div>
 
         <div class="modal-alt">
           Already have an account?
@@ -426,6 +469,28 @@
     </div>
   </div>
 
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FinancialService",
+      "name": "IntradayGain",
+      "url": "https://intradaygain.com/",
+      "logo": "https://intradaygain.com/logo.png",
+      "description": "IntradayGain provides intraday trading automation, broker connectivity, and SEBI-aware risk guardrails for Indian equities desks.",
+      "address": { "@type": "PostalAddress", "addressCountry": "IN" },
+      "areaServed": "IN",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer support",
+        "email": "support@intradaygain.com",
+        "availableLanguage": ["en", "hi"]
+      }
+    }
+  </script>
+
   <script src="./js/main.js"></script>
 </body>
 </html>
+
+
+
