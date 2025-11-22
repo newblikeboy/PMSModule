@@ -95,7 +95,7 @@ app.get("/api/live-market-ticks", async (req, res) => {
         req.query.token,
         process.env.JWT_SECRET || 'dfhksjafh93478fhcwgobnlzs836ybx'
       );
-      userId = jwtDecoded.userId;
+      userId = jwtDecoded.userId || jwtDecoded.uid || jwtDecoded.id;
     } catch (err) {
       console.warn("Invalid token for live-market-ticks");
     }
