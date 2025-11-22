@@ -49,25 +49,57 @@ async function getFunds(userId) {
   }
 }
 
-async function placeMarketOrder({ userId, symbol, symboltoken, qty, side }) {
+function extractOrderId(data) {
+  return (
+    data?.data?.orderid ||
+    data?.data?.orderId ||
+    data?.orderid ||
+    data?.orderId ||
+    null
+  );
+}
+
+async function placeMarketOrder({ userId, symbol, symboltoken, qty, side, bracket }) {
   try {
     const { creds } = await getUserCreds(userId);
     const headers = buildHeaders(creds.apiKey, creds.accessToken);
+
+    const isBracket =
+      bracket &&
+      Number(bracket.squareoff) > 0 &&
+      Number(bracket.stoploss) > 0;
+
+    if (!isBracket) {
+      throw new Error("Bracket order required (squareoff/stoploss missing)");
+    }
 
     const body = {
       exchange: "NSE",
       tradingsymbol: symbol,
       symboltoken: symboltoken,
       transactiontype: side === "SELL" ? "SELL" : "BUY",
-      variety: "NORMAL",
+      variety: "ROBO",
       ordertype: "MARKET",
       producttype: "INTRADAY",
       duration: "DAY",
       quantity: Number(qty) || 1,
     };
 
+    body.squareoff = Number(bracket.squareoff);
+    body.stoploss = Number(bracket.stoploss);
+    if (Number(bracket.trailingStopLoss) > 0) {
+      body.trailingStopLoss = Number(bracket.trailingStopLoss);
+    }
+
     const { data } = await axios.post(ORDER_URL, body, { headers, timeout: 15000 });
-    return { ok: true, raw: data };
+    const orderId = extractOrderId(data);
+    console.info("[angel.trade] placeOrder success", {
+      symbol,
+      qty: body.quantity,
+      orderId,
+      bracket: { squareoff: body.squareoff, stoploss: body.stoploss, trailing: body.trailingStopLoss },
+    });
+    return { ok: true, raw: data, orderId };
   } catch (err) {
     const resp = err?.response?.data;
     console.error("[angel.trade] placeOrder error", resp || err.message);
@@ -76,6 +108,13 @@ async function placeMarketOrder({ userId, symbol, symboltoken, qty, side }) {
       resp?.info ||
       err?.message ||
       "Angel order placement failed";
+    console.warn("[angel.trade] placeOrder failed", {
+      symbol,
+      qty,
+      side,
+      bracket: bracket ? { squareoff: bracket.squareoff, stoploss: bracket.stoploss } : undefined,
+      error: message,
+    });
     return { ok: false, error: message };
   }
 }
@@ -84,4 +123,3 @@ module.exports = {
   getFunds,
   placeMarketOrder,
 };
-

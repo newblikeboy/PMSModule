@@ -22,8 +22,14 @@ async function load() {
       const arr = JSON.parse(raw);
       const m = new Map();
       for (const r of arr) {
-        const exch = String(r.exchange || r.exch || "NSE").toUpperCase();
-        const ts = String(r.tradingsymbol || r.tradingSymbol || "").toUpperCase();
+        // Support multiple field names because broker exports vary by source
+        const exch = String(r.exchange || r.exch || r.exch_seg || "NSE").toUpperCase();
+        const ts = String(
+          r.tradingsymbol ||
+            r.tradingSymbol ||
+            r.symbol || // angel_instruments.json uses `symbol`
+            ""
+        ).toUpperCase();
         const tok = String(r.symboltoken || r.token || r.symbolToken || "").trim();
         if (exch && ts && tok) m.set(`${exch}:${ts}`, tok);
       }

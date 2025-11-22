@@ -25,6 +25,7 @@ const CFG = {
   LOCK_TIMEOUT_MS: 15000,
   SIGNAL_STALE_MS: 30 * 60 * 1000,   // 30 minutes
   TICK_THROTTLE_MS: 300,
+  BO_TRAILING: Number(process.env.ANGEL_BO_TRAIL || 0), // trailing SL ticks for BO
 };
 
 const SIGNAL_QUERY = {
@@ -429,7 +430,38 @@ async function tryEnterTrade(user, signal, entryPrice, settings) {
   }
 
   const token = await resolveToken(signal.symbol);
-  if (!token) return { ok: false, error: "symboltoken missing" };
+  if (!token) {
+    console.warn("[TradeEngine] LIVE order blocked: symboltoken missing", {
+      symbol: signal.symbol,
+      userId: String(user._id),
+    });
+    return { ok: false, error: "symboltoken missing" };
+  }
+
+  const targetDiff = Number((base.targetPrice - entryPrice).toFixed(2));
+  const stopDiff = Number((entryPrice - base.stopPrice).toFixed(2));
+  if (!(targetDiff > 0 && stopDiff > 0)) {
+    console.warn("[TradeEngine] LIVE order blocked: invalid target/stop deltas", {
+      symbol: signal.symbol,
+      targetDiff,
+      stopDiff,
+    });
+    return { ok: false, error: "invalid target/stop" };
+  }
+
+  const bracket = {
+    squareoff: targetDiff,
+    stoploss: stopDiff,
+    trailingStopLoss: CFG.BO_TRAILING > 0 ? Number(CFG.BO_TRAILING.toFixed(2)) : undefined,
+  };
+
+  console.info("[TradeEngine] LIVE BO order request", {
+    userId: String(user._id),
+    symbol: signal.symbol,
+    token,
+    qty,
+    bracket,
+  });
 
   let placed = await angelTrade.placeMarketOrder({
     userId: user._id,
@@ -437,22 +469,44 @@ async function tryEnterTrade(user, signal, entryPrice, settings) {
     symboltoken: token,
     qty,
     side: "BUY",
+    bracket,
   });
 
   if (!placed?.ok) {
-    console.warn("[TradeEngine] Live buy failed, retrying once...");
+    console.warn("[TradeEngine] Live buy failed, retrying once...", {
+      symbol: signal.symbol,
+      token,
+      qty,
+      bracket,
+      error: placed?.error,
+    });
     placed = await angelTrade.placeMarketOrder({
       userId: user._id,
       symbol: signal.symbol,
       symboltoken: token,
       qty,
       side: "BUY",
+      bracket,
     });
   }
 
   if (!placed?.ok) {
+    console.warn("[TradeEngine] Live buy failed after retry", {
+      symbol: signal.symbol,
+      token,
+      qty,
+      bracket,
+      error: placed?.error,
+    });
     return { ok: false, error: placed?.error || "live order failed" };
   }
+
+  console.info("[TradeEngine] LIVE order placed", {
+    symbol: signal.symbol,
+    qty,
+    bracket,
+    orderId: placed.orderId || placed?.raw?.data?.orderid || placed?.raw?.orderid,
+  });
 
   const liveDoc = await PaperTrade.create({
     ...base,
