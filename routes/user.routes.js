@@ -29,6 +29,7 @@ router.get("/profile", authRequired, async (req, res) => {
       name: u.name,
       email: u.email,
       phone: u.phone,
+      createdAt: u.createdAt,
       role: u.role,
       plan: u.plan,
       broker: {

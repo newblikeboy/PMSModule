@@ -8,8 +8,10 @@
     Quarterly: { label: "Quarterly", displayAmount: "\u20B92,100" },
     Yearly: { label: "Yearly", displayAmount: "\u20B96,000" }
   };
+  const TRIAL_DAYS = 10;
 
   let currentUserProfile = null;
+  let currentPlanMeta = { label: "Free", validTill: null };
   let angelLinkInProgress = false;
   let angelLinkPollTimer = null;
   let angelLinkDeadline = 0;
@@ -129,6 +131,19 @@
   const saveAngelClientIdBtn = $("#saveAngelClientIdBtn");
   const angelClientIdMsg = $("#angelClientIdMsg");
   const planChecklistAction = $("#checkPlanStatus");
+  const profilePlanPill = $("#profilePlanPill");
+  const profileDetailName = $("#profileDetailName");
+  const profileDetailPhone = $("#profileDetailPhone");
+  const profileDetailEmail = $("#profileDetailEmail");
+  const profileDetailPlan = $("#profileDetailPlan");
+  const profileDetailPlanValid = $("#profileDetailPlanValid");
+  const signalsCard = $("#signalsCard");
+  const positionsCard = $("#positionsCard");
+  const signalsLock = $("#signalsLock");
+  const tradesLock = $("#tradesLock");
+  const signalsLockCta = $("#signalsLockCta");
+  const tradesLockCta = $("#tradesLockCta");
+  const trialCountdown = $("#trialCountdown");
 
   const openPricingModal = (trigger) => {
     if (trigger?.disabled) return;
@@ -165,6 +180,9 @@
   planChecklistAction?.addEventListener("click", () => {
     openPricingModal(planChecklistAction);
   });
+
+  signalsLockCta?.addEventListener("click", () => openPricingModal(signalsLockCta));
+  tradesLockCta?.addEventListener("click", () => openPricingModal(tradesLockCta));
 
   $("#profileOption")?.addEventListener("click", () => {
     closeProfileDropdown();
@@ -564,6 +582,116 @@
     })}`;
   };
 
+  const formatDate = (val) => {
+    if (!val) return "";
+    const d = val instanceof Date ? val : new Date(val);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  };
+
+  function getTrialInfo() {
+    const userId = currentUserProfile?.id || currentUserProfile?._id || "anon";
+    const storageKey = `qp_trial_start_${userId}`;
+
+    let startDate = null;
+
+    // Prefer server creation timestamp if present
+    const created = currentUserProfile?.createdAt;
+    const createdDate = created ? new Date(created) : null;
+    if (createdDate && !Number.isNaN(createdDate.getTime())) {
+      startDate = createdDate;
+    }
+
+    // Fallback to local storage trial start (per user) to avoid instant lock
+    if (!startDate) {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = new Date(stored);
+        if (!Number.isNaN(parsed.getTime())) {
+          startDate = parsed;
+        }
+      }
+    }
+
+    // If still missing, set a fresh start now and grant full trial window
+    if (!startDate) {
+      startDate = new Date();
+      try {
+        localStorage.setItem(storageKey, startDate.toISOString());
+      } catch {}
+    }
+
+    const now = Date.now();
+    const daysUsed = Math.floor((now - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const expiresAt = new Date(startDate.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    const daysLeft = Math.max(TRIAL_DAYS - daysUsed, 0);
+    return { daysLeft, expiresAt, trialExpired: daysLeft <= 0 };
+  }
+
+  function renderTrialCountdown(isPaid) {
+    if (!trialCountdown) return;
+    if (!currentUserProfile) {
+      trialCountdown.textContent = "--";
+      return;
+    }
+    if (isPaid) {
+      trialCountdown.textContent = "Plan active — full access enabled.";
+      return;
+    }
+    const trial = getTrialInfo();
+    if (trial.trialExpired) {
+      trialCountdown.textContent = "Free access ended. Buy a plan to keep signals & trades live.";
+      return;
+    }
+    const dateText = formatDate(trial.expiresAt);
+    const dayLabel = trial.daysLeft === 1 ? "day" : "days";
+    trialCountdown.textContent = dateText
+      ? `Your free access to use this app is valid till ${dateText} - ${trial.daysLeft} ${dayLabel} left`
+      : `Your free access to use this app is valid for ${trial.daysLeft} ${dayLabel}`;
+  }
+
+  function toggleLock(cardEl, overlayEl, locked) {
+    if (!cardEl) return;
+    cardEl.classList.toggle("app-locked", !!locked);
+    if (overlayEl) {
+      overlayEl.style.display = locked ? "flex" : "none";
+    }
+  }
+
+  function updateTrialUI() {
+    const isPaid =
+      (currentPlanMeta?.label && currentPlanMeta.label !== "Free") ||
+      (currentUserProfile?.plan && currentUserProfile.plan !== "Free") ||
+      currentUserProfile?.role === "Admin";
+
+    renderTrialCountdown(isPaid);
+    if (!currentUserProfile) return;
+
+    const trial = getTrialInfo();
+    const lock = !isPaid && trial.trialExpired;
+    toggleLock(signalsCard, signalsLock, lock);
+    toggleLock(positionsCard, tradesLock, lock);
+  }
+
+  function renderProfileDetails() {
+    const name = (currentUserProfile?.name || currentUserProfile?.email || "--").trim();
+    const phone = currentUserProfile?.phone || "Not added";
+    const email = currentUserProfile?.email || "--";
+
+    const planLabel = currentPlanMeta.label || currentUserProfile?.plan || "Free";
+    const hasPaidPlan = planLabel !== "Free";
+    const validRaw = currentPlanMeta.validTill || currentUserProfile?.planValidTill;
+    const validText = formatDate(validRaw) || (hasPaidPlan ? "Not set" : "Not applicable");
+
+    if (profileDetailName) profileDetailName.textContent = name || "--";
+    if (profileDetailPhone) profileDetailPhone.textContent = phone;
+    if (profileDetailEmail) profileDetailEmail.textContent = email;
+    if (profileDetailPlan) profileDetailPlan.textContent = planLabel;
+    if (profileDetailPlanValid) profileDetailPlanValid.textContent = validText;
+    if (profilePlanPill) profilePlanPill.textContent = `Plan: ${planLabel}`;
+    updateTrialUI();
+  }
+
   // Footer year
   const yearNowEl = $("#yearNow");
   if (yearNowEl) yearNowEl.textContent = new Date().getFullYear();
@@ -671,6 +799,12 @@
     const isPaid = plan !== "Free";
     const badgeLabel = isPaid ? tierLabel : "Free";
     const hasFullAccess = isPaid || role === "Admin";
+
+    currentPlanMeta = {
+      label: badgeLabel,
+      validTill: planRes.validTill || planRes.planValidTill || planRes.expiresAt || null
+    };
+    renderProfileDetails();
 
     $("#sidebarPlanPill") && ($("#sidebarPlanPill").textContent = `Plan: ${badgeLabel}`);
 
@@ -821,6 +955,7 @@
     }
 
     updateAngelUI(user.angel || {}, user);
+    renderProfileDetails();
     return user;
   }
 

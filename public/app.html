@@ -25,7 +25,8 @@
     </div>
 
     <nav class="app-nav">
-      <button class="app-nav-item active" data-view="overviewView">Overview</button>
+      <button class="app-nav-item active" data-view="overviewView">Dashboard</button>
+      <button class="app-nav-item" data-view="profileView">My Profile</button>
       <button class="app-nav-item" data-view="signalsView">Signals</button>
       <button class="app-nav-item" data-view="positionsView">Positions</button>
       <button class="app-nav-item" data-view="automationView">Automation</button>
@@ -46,7 +47,7 @@
           <span></span><span></span><span></span>
         </button>
 
-        <button type="button" class="app-brand" data-nav-jump="overviewView" aria-label="Go to overview">
+        <button type="button" class="app-brand" data-nav-jump="overviewView" aria-label="Go to dashboard">
           <span class="app-logo">IG</span>
           <div class="app-brand-meta">
             <span class="app-brand-name">IntradayGain</span>
@@ -78,6 +79,7 @@
           <section class="app-hero app-hero--overview">
             <div class="app-hero-top">
               <div class="app-hero-text">
+                <p class="app-trial-inline" id="trialCountdown">--</p>
                 <p class="app-eyebrow" id="overviewGreeting">Welcome back</p>
                 <h1 class="app-hero-title">Your automation cockpit is ready.</h1>
                 <p class="app-hero-sub">
@@ -167,15 +169,60 @@
         </div>
       </section>
 
+      <section class="app-view" id="profileView">
+        <div class="container">
+          <section class="app-card app-card--profile" id="profileSection">
+            <header class="app-card-head">
+              <div>
+                <h2 class="app-card-title">My Profile</h2>
+                <p class="app-card-sub">Verify your personal details and keep your plan status handy.</p>
+              </div>
+              <div class="profile-plan-pill" id="profilePlanPill">Plan: --</div>
+            </header>
+            <div class="app-card-body">
+              <div class="profile-grid">
+                <article class="profile-field">
+                  <div class="profile-field-label">Full name</div>
+                  <div class="profile-field-value" id="profileDetailName">--</div>
+                </article>
+                <article class="profile-field">
+                  <div class="profile-field-label">Mobile</div>
+                  <div class="profile-field-value" id="profileDetailPhone">--</div>
+                </article>
+                <article class="profile-field">
+                  <div class="profile-field-label">Email</div>
+                  <div class="profile-field-value" id="profileDetailEmail">--</div>
+                </article>
+                <article class="profile-field">
+                  <div class="profile-field-label">Plan status</div>
+                  <div class="profile-field-value" id="profileDetailPlan">--</div>
+                </article>
+                <article class="profile-field">
+                  <div class="profile-field-label">Plan valid till</div>
+                  <div class="profile-field-value" id="profileDetailPlanValid">--</div>
+                </article>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="app-view" id="signalsView">
         <div class="container">
-          <section class="app-card app-card--signals">
+          <section class="app-card app-card--signals" id="signalsCard">
             <header class="app-card-head">
               <div>
                 <h2 class="app-card-title">Today's opportunities</h2>
                 <p class="app-card-sub">Momentum + pullback candidates that match the live strategy filters.</p>
               </div>
             </header>
+            <div class="app-lock-overlay" id="signalsLock">
+              <div class="app-lock-body">
+                <p class="app-lock-title">Trial ended</p>
+                <p class="app-lock-sub">Signals are free for the first 10 days. Buy a plan to keep them live.</p>
+                <button type="button" class="app-btn primary small" id="signalsLockCta">Buy a subscription</button>
+              </div>
+            </div>
             <div class="app-card-body">
               <div class="app-scroll">
                 <table class="app-table">
@@ -200,13 +247,20 @@
 
       <section class="app-view" id="positionsView">
         <div class="container">
-          <section class="app-card app-card--positions">
+          <section class="app-card app-card--positions" id="positionsCard">
             <header class="app-card-head">
               <div>
                 <h2 class="app-card-title">Open positions (paper)</h2>
                 
               </div>
             </header>
+            <div class="app-lock-overlay" id="tradesLock">
+              <div class="app-lock-body">
+                <p class="app-lock-title">Trial ended</p>
+                <p class="app-lock-sub">Paper trades stay visible for 10 days. Continue with a paid plan.</p>
+                <button type="button" class="app-btn primary small" id="tradesLockCta">Buy a subscription</button>
+              </div>
+            </div>
             <div class="app-card-body">
               <div class="app-scroll">
                 <table class="app-table">

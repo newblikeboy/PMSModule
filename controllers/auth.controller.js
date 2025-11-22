@@ -39,6 +39,7 @@ exports.signup = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        createdAt: user.createdAt,
         plan: user.plan,
         broker: user.broker,
         autoTradingEnabled: user.autoTradingEnabled
@@ -72,6 +73,7 @@ exports.login = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        createdAt: user.createdAt,
         plan: user.plan,
         broker: user.broker,
         autoTradingEnabled: user.autoTradingEnabled
@@ -96,6 +98,7 @@ exports.me = async (req, res, next) => {
         id: u._id,
         name: u.name,
         email: u.email,
+        createdAt: u.createdAt,
         plan: u.plan,
         broker: u.broker,
         autoTradingEnabled: u.autoTradingEnabled
