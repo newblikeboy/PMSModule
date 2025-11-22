@@ -443,6 +443,8 @@
     // Check conditions and show alerts if disabled
     const hasAccess = (currentUserProfile?.plan && currentUserProfile.plan !== "Free") || currentUserProfile?.role === "Admin";
     const connected = currentUserProfile?.broker?.connected && currentUserProfile?.broker?.brokerName === "ANGEL";
+    const liveEnabledFlag = !!(currentUserProfile?.angel?.liveEnabled ?? currentUserProfile?.angelLiveEnabled);
+    const autoEnabledFlag = !!currentUserProfile?.autoTradingEnabled;
 
     if (!hasAccess && connected) {
       alert("Please Buy The Subscription to Enable the Trading Engine..");
@@ -462,7 +464,7 @@
     // If button is disabled for other reasons, return
     if (tradingEngineToggleBtn.disabled) return;
 
-    const currentState = $("#tradingEngineStatus")?.dataset.state === "on";
+    const currentState = hasAccess && connected && liveEnabledFlag && autoEnabledFlag;
     const newState = !currentState;
 
     // Toggle both liveEnabled and autoTradingEnabled
